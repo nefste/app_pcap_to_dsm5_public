@@ -1,0 +1,163 @@
+{
+  "M": 14,
+  "N": 5,
+  "theta": 0.5,
+  "core_symptoms": [
+    "C2"
+  ],
+  "C1": {
+    "IS": {
+      "w": 0.2,
+      "mf": {
+        "type": "tri",
+        "lo": 0.0,
+        "mid": 0.2,
+        "hi": 5.0,
+        "invert": false
+      }
+    },
+    "IV": {
+      "w": 0.2,
+      "mf": {
+        "type": "tri",
+        "lo": 0.0,
+        "mid": 1.0,
+        "hi": 3.0,
+        "invert": false
+      }
+    },
+    "F2_MeanSocialDurSec": {
+      "w": 0.1,
+      "mf": {
+        "type": "tri",
+        "lo": 0.0,
+        "mid": 10000.0,
+        "hi": 90000.0,
+        "invert": true
+      }
+    },
+    "LongestInactivityHours": {
+      "w": 0.5,
+      "mf": {
+        "type": "tri",
+        "lo": 0.0,
+        "mid": 5.0,
+        "hi": 24.0,
+        "invert": true
+      }
+    },
+    "F1_DistinctSocial": {
+      "w": 0.1,
+      "mf": {
+        "type": "tri",
+        "lo": 0.0,
+        "mid": 50.0,
+        "hi": 160.0,
+        "invert": false
+      }
+    }
+  },
+  "C2": {
+    "C2_F1_UniqueSLD": {
+      "w": 0.4,
+      "mf": {
+        "type": "tri",
+        "lo": 0.0,
+        "mid": 30.0,
+        "hi": 600.0,
+        "invert": true
+      }
+    },
+    "C2_F3_ChatSessionCount": {
+      "w": 0.3,
+      "mf": {
+        "type": "tri",
+        "lo": 0.0,
+        "mid": 1.0,
+        "hi": 65.0,
+        "invert": true
+      }
+    },
+    "C2_F6_ProductivityHits": {
+      "w": 0.3,
+      "mf": {
+        "type": "tri",
+        "lo": 0.0,
+        "mid": 100.0,
+        "hi": 100000.0,
+        "invert": true
+      }
+    }
+  },
+  "C4": {
+    "C4_F2_WakeAfter0400Min": {
+      "w": 0.1,
+      "mf": {
+        "type": "tri",
+        "lo": 0.0,
+        "mid": 100.0,
+        "hi": 1085.0,
+        "invert": false
+      }
+    }
+  },
+  "C5": {
+    "C5_F3_MedianIKS": {
+      "w": 0.6,
+      "mf": {
+        "type": "tri",
+        "lo": 0.0,
+        "mid": 3.0,
+        "hi": 5.0,
+        "invert": true
+      }
+    }
+  },
+  "C6": {
+    "C6_F4_UpstreamBpsPerActiveHour": {
+      "w": 0.6,
+      "mf": {
+        "type": "tri",
+        "lo": 0.0,
+        "mid": 100.0,
+        "hi": 800.0,
+        "invert": true
+      }
+    }
+  },
+  "C8": {
+    "C8_F2_DNSBurstRatePerHour": {
+      "w": 0.25,
+      "mf": {
+        "type": "tri",
+        "lo": 0.0,
+        "mid": 25.0,
+        "hi": 61.0,
+        "invert": false
+      }
+    },
+    "C8_F4_RepeatedQueryRatio60m": {
+      "w": 0.15,
+      "mf": {
+        "type": "tri",
+        "lo": 0.0,
+        "mid": 0.2,
+        "hi": 1.0,
+        "invert": false
+      }
+    },
+    "C8_F8_MedianIKSsec": {
+      "w": 0.6,
+      "mf": {
+        "type": "tri",
+        "lo": 0.0,
+        "mid": 0.4,
+        "hi": 0.6,
+        "invert": true
+      }
+    }
+  },
+  "C3": {},
+  "C7": {},
+  "C9": {}
+}

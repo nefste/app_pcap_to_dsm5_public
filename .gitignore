@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+
+# Virtual Environment
+venv/
+.venv/
+
+# Streamlit cache
+.streamlit/secrets.toml
+
+# Data folders
+# app/processed_parquet/
+# app/feature_cache/
+
+# Logs
+*.log

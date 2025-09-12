@@ -1,0 +1,10 @@
+*** Begin Patch
+*** Update File: app/pages/02_DSM5_Dashboard.py
+@@
+-            if weekly:
+-                ts_plot["WeekStart"] = ts_plot["Date"].dt.to_period("W").start_time
++            if weekly:
++                ts_plot["WeekStart"] = ts_plot["Date"].dt.to_period("W").dt.start_time
+                 ts_plot["Weekday"] = ts_plot["Date"].dt.day_name()
+                 for wk, sub in ts_plot.groupby("WeekStart"):
+*** End Patch

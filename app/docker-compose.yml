@@ -1,0 +1,17 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pcap-to-dsm5
+    ports:
+      - "8501:8501"
+    environment:
+      - SCAPY_USE_LIBPCAP=no
+    volumes:
+      # Persist computed artifacts
+      - ./processed_parquet:/app/processed_parquet
+      - ./feature_cache:/app/feature_cache
+      # Provide Streamlit config and credentials (edit locally as needed)
+      - ./.streamlit:/app/.streamlit:ro
+    restart: unless-stopped
