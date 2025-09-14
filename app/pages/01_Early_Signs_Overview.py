@@ -1660,14 +1660,26 @@ for idx, (crit, label) in enumerate(CRIT_TABS):
                         st.warning("Ensure lo < mid < hi.")
                 with c3:
                     try:
-                        _boxplot_with_ranges(
-                            ALL_DAILY,
-                            k,
-                            mf.get("lo", 0.0),
-                            mf.get("mid", 0.0),
-                            mf.get("hi", 0.0),
-                            mf.get("invert", False),
-                        )
+                        tab_raw, tab_norm = st.tabs(["Raw", "Normalised"])
+                        with tab_raw:
+                            _boxplot_with_ranges(
+                                ALL_DAILY,
+                                k,
+                                mf.get("lo", 0.0),
+                                mf.get("mid", 0.0),
+                                mf.get("hi", 0.0),
+                                mf.get("invert", False),
+                            )
+                        with tab_norm:
+                            _boxplot_membership(
+                                ALL_DAILY,
+                                k,
+                                float(mf.get("lo", 0.0)),
+                                float(mf.get("mid", 0.0)),
+                                float(mf.get("hi", 0.0)),
+                                invert=bool(mf.get("invert", False)),
+                                theta=float(theta_default),
+                            )
                     except Exception:
                         pass
                 with c1:
