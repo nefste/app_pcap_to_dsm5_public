@@ -5,6 +5,8 @@ import logging as _logging
 
 os.environ.setdefault("SCAPY_USE_LIBPCAP", "no")
 _logging.getLogger("scapy.runtime").setLevel(_logging.ERROR)
+from pathlib import Path
+
 from datetime import datetime, timedelta
 import numpy as np
 import pandas as pd
@@ -53,7 +55,9 @@ if "logged_in" not in st.session_state or not st.session_state.logged_in:
     login(); st.stop()
 
 # -------------------- CONFIG --------------------
-PROCESSED_DIR = "processed_parquet"; os.makedirs(PROCESSED_DIR, exist_ok=True)
+APP_DIR = Path(__file__).resolve().parents[1]
+PROCESSED_DIR = APP_DIR / "processed_parquet"; os.makedirs(PROCESSED_DIR, exist_ok=True)
+
 RESAMPLE_FREQ = "1Min"; PARTITION_MINUTES = 5; COMMIT_LAG_WINDOWS = 2
 
 def sanitize_name(name: str) -> str:

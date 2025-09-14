@@ -7,6 +7,7 @@ import sys
 import re
 import hashlib
 from datetime import datetime, date
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -124,10 +125,11 @@ with col2:
 
 # =============================== Paths / Caching ===============================
 
-PROCESSED_DIR = "processed_parquet"
+APP_DIR = Path(__file__).resolve().parents[1]
+PROCESSED_DIR = APP_DIR / "processed_parquet"
 os.makedirs(PROCESSED_DIR, exist_ok=True)
 
-FEATURE_CACHE_DIR = "feature_cache"
+FEATURE_CACHE_DIR = APP_DIR / "feature_cache"
 os.makedirs(FEATURE_CACHE_DIR, exist_ok=True)
 
 # ---------- Robust Parquet read (skips corrupted row groups) ----------

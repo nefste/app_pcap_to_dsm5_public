@@ -11,7 +11,7 @@ venv/
 .venv/
 
 # Streamlit cache
-.streamlit/secrets.toml
+app/.streamlit/secrets.toml
 
 # Data folders
 # app/processed_parquet/

@@ -88,10 +88,9 @@ with col2:
 
 # ------------------------------ Basics / Paths --------------------------------
 
-PROCESSED_DIR = "processed_parquet"
-FEATURE_CACHE_DIR = "feature_cache"
-os.makedirs(PROCESSED_DIR, exist_ok=True)
-os.makedirs(FEATURE_CACHE_DIR, exist_ok=True)
+APP_DIR = Path(__file__).resolve().parents[1]
+PROCESSED_DIR = APP_DIR / "processed_parquet"
+FEATURE_CACHE_DIR = APP_DIR / "feature_cache"
 
 
 # ------------------------------ Data loading ----------------------------------
