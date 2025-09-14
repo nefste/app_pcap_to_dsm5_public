@@ -1,0 +1,26 @@
+<svg width="520" height="120" viewBox="0 0 520 120" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">CareNet — Supporting Conversations through Network Insights</title>
+  <desc id="desc">Minimal logo with a chat bubble containing a small network diagram, alongside the word CareNet and a tagline.</desc>
+
+  <!-- Icon -->
+  <g transform="translate(10,18)" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+    <!-- chat bubble -->
+    <path d="M68 50c0 14.36-11.64 26-26 26H30l-14 10 3.6-12.6C13.58 69.9 6 61.1 6 50c0-14.36 11.64-26 26-26h10c14.36 0 26 11.64 26 26z"/>
+    <!-- network nodes -->
+    <circle cx="26" cy="44" r="4" fill="currentColor"/>
+    <circle cx="46" cy="36" r="4" fill="currentColor"/>
+    <circle cx="50" cy="56" r="4" fill="currentColor"/>
+    <!-- links -->
+    <path d="M30 43l12-5M30 46l16 9M46 40l2 14"/>
+  </g>
+
+  <!-- Wordmark -->
+  <g transform="translate(100,18)" fill="currentColor">
+    <text x="0" y="42" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, ui-sans-serif" font-weight="700" font-size="42" letter-spacing="0.5">
+      CareNet
+    </text>
+    <text x="0" y="76" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, ui-sans-serif" font-weight="400" font-size="16" opacity="0.72">
+      Supporting Conversations through Network Insights
+    </text>
+  </g>
+</svg>

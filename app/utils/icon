@@ -1,0 +1,16 @@
+<svg width="128" height="128" viewBox="0 0 96 96" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title2 desc2">
+  <title id="title2">CareNet App Icon</title>
+  <desc id="desc2">Minimal chat bubble with network nodes and links.</desc>
+
+  <!-- subtle background ring -->
+  <circle cx="48" cy="48" r="44" stroke="currentColor" stroke-opacity="0.12" stroke-width="2"/>
+
+  <!-- chat bubble -->
+  <g transform="translate(12,12)" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M56 41c0 12.15-9.85 22-22 22H26l-12 9 3.2-10.8C12.5 57.7 8 50.9 8 41c0-12.15 9.85-22 22-22h4c12.15 0 22 9.85 22 22z"/>
+    <circle cx="26" cy="34" r="4" fill="currentColor"/>
+    <circle cx="42" cy="28" r="4" fill="currentColor"/>
+    <circle cx="44" cy="46" r="4" fill="currentColor"/>
+    <path d="M30 33l10-4M30 36l12 7M42 32l2 12"/>
+  </g>
+</svg>

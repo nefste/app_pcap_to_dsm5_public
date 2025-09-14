@@ -21,7 +21,7 @@ from metrics.common import enrich_with_hostnames, ensure_full_day_minutes
 
 # ------------------------------- Page/UI -------------------------------------
 st.set_page_config(
-    page_title="PCAP Analyzer for Behavioral Research",
+    page_title="CareNet - Nef, Stephan",
     page_icon="https://upload.wikimedia.org/wikipedia/de/thumb/7/77/Uni_St_Gallen_Logo.svg/2048px-Uni_St_Gallen_Logo.svg.png",
     layout="wide",
 )
@@ -31,8 +31,9 @@ st.logo(
     link="https://www.unisg.ch/en/",
 )
 
+@st.dialog("Login")
 def login():
-    st.title("PCAP Analyzer for Behavioral Research")
+    st.image("utils/logo.svg", use_container_width=True)
     st.subheader("👋🏻 welcome - please login")
     username = st.text_input("Username", placeholder="nef")
     password = st.text_input("Password", type="password")

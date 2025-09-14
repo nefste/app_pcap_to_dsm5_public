@@ -30,7 +30,7 @@ CRIT_KEYS = ["C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9"]
 # ------------------------------ Page header / Auth -----------------------------
 
 st.set_page_config(
-    page_title="PCAP Analyzer for Behavioral Research",
+    page_title="CareNet - Nef, Stephan",
     page_icon="https://upload.wikimedia.org/wikipedia/de/thumb/7/77/Uni_St_Gallen_Logo.svg/2048px-Uni_St_Gallen_Logo.svg.png",
     layout="wide",
 )
@@ -47,9 +47,9 @@ except Exception:
     )
 
 
-
+@st.dialog("Login")
 def login():
-    st.title("PCAP Analyzer for Behavioral Research")
+    st.image("utils/logo.svg", use_container_width=True)
     st.subheader("👋🏻 welcome - please login")
     username = st.text_input("Username", placeholder="nef")
     password = st.text_input("Password", type="password")
@@ -73,7 +73,7 @@ if "logged_in" not in st.session_state or not st.session_state.logged_in:
 
 col1, col2 = st.columns([7, 2])
 with col1:
-    st.title("Fuzzy‑Additive Symptom Likelihood (FASL) + DSM‑Gate")
+    st.title("Early Signs Overview")
     st.caption(
         """
         This is a research prototype and not a medical device, Stephan Nef
@@ -1472,6 +1472,7 @@ for idx, (crit, label) in enumerate(CRIT_TABS):
         st.session_state.setdefault("fasl_autotuned_flags", {})
         with st.container(border=True):
             st.markdown("**Auto-tune parameters for each metric**")
+            st.warning("⚠️ auto-tune feature does not work yet")
             col_auto_btn, col_auto_opts = st.columns([1, 3])
             with col_auto_btn:
                 if st.button(f"Auto-tune {crit}", key=f"auto_{crit}"):

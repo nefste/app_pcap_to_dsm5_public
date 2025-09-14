@@ -1,6 +1,6 @@
-"""
-Home page with a short introduction for non‑technical users (parents, clinicians, care givers) and an
-illustrative feature‑to‑criterion mapping. This file intentionally avoids any heavy logic.
+﻿"""
+Home page with a short introduction for non-technical users (parents, clinicians, care givers) and an
+illustrative feature-to-criterion mapping. This file intentionally avoids any heavy logic.
 """
 
 import os
@@ -8,10 +8,11 @@ import hashlib
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+from pathlib import Path
 
 # ------------------------------- Page config -------------------------------
 st.set_page_config(
-    page_title="PCAP Analyzer for Behavioral Research",
+    page_title="CareNet - Nef, Stephan",
     page_icon="https://upload.wikimedia.org/wikipedia/de/thumb/7/77/Uni_St_Gallen_Logo.svg/2048px-Uni_St_Gallen_Logo.svg.png",
     layout="wide",
 )
@@ -27,12 +28,14 @@ except Exception:
     )
 
 # ------------------------------- Login -------------------------------------
+@st.dialog("Login")
 def login():
-    st.title("PCAP Analyzer for Behavioral Research")
-    st.subheader("👋🏻 welcome - please login")
+    img_path = str(Path(__file__).resolve().parent / "utils" / "logo.svg")
+    st.image(img_path)
+    st.subheader("Welcome - please log in")
     username = st.text_input("Username", placeholder="nef")
     password = st.text_input("Password", type="password")
-    st.info("ℹ️ if you need access please reach out to stephan.nef@student.unisg.ch")
+    st.info("If you need access, please reach out to stephan.nef@student.unisg.ch")
     if username and password:
         if username == st.secrets["username"] and password == st.secrets["password"]:
             st.session_state.logged_in = True
@@ -54,23 +57,31 @@ if "logged_in" not in st.session_state or not st.session_state.logged_in:
 with st.container(border=True):
     c1, c2, c3 = st.columns([2, 0.2, 1])
     with c1:
-        st.title("PCAP‑based Behavioral Indicators aligned with DSM‑5")
+        img_path = str(Path(__file__).resolve().parent / "utils" / "logo.svg")
+        st.image(img_path, use_container_width=True)
         st.markdown(
             """<div class='hero'>
             This app turns everyday <b>network traffic data</b> into
-            <b>human‑readable indicators</b> that indicates towards DSM‑5 symptom domains.
-            It is designed for <b>non‑technical users</b> such as parents, clinicians,
+            <b>human-readable indicators</b> that indicates towards DSM-5 symptom domains.
+            It is designed for <b>non-technical users</b> such as parents, clinicians,
             medical staff, and care givers, to support informed conversations and
-            <b>earlier help‑seeking</b>.
+            <b>earlier help-seeking</b>.
             </div>""",
             unsafe_allow_html=True,
         )
         st.write("---")
-        st.caption("🛈 This is a research tool to prompt conversation and triage. It is not a diagnostic device.")
+        st.info("""ℹ️ This application is a research tool intended to support conversation and early triage.
+            It is not a medical or diagnostic device.
+            The calculated metrics, likelihoods, and visualizations are experimental and may contain errors.
+            The underlying data do not represent actual user behavior and should not be relied upon for diagnosis or clinical decision-making.
+            Always seek advice from qualified health professionals for any questions or concerns regarding mental health.""")
     with c3:
         st.image(
             "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f8/HSG_Logo_DE_RGB.svg/1024px-HSG_Logo_DE_RGB.svg.png"
         )
+    img_path = Path(__file__).resolve().parent / "utils" / "overview_app_visualisations.png"
+    st.image(str(img_path))
+
 
 # ------------------------------- Audience / value ---------------------------
 with st.container(border=True):
@@ -79,12 +90,12 @@ with st.container(border=True):
     colA, colB, colC = st.columns(3)
     with colA:
         st.markdown(
-            "<div class='kpi-card'><b>Families & Care‑Givers</b><br/><span class='small'>Spot changes in routine and sleep without reading private content.</span></div>",
+            "<div class='kpi-card'><b>Families & Care-Givers</b><br/><span class='small'>Spot changes in routine and sleep without reading private content.</span></div>",
             unsafe_allow_html=True,
         )
     with colB:
         st.markdown(
-            "<div class='kpi-card'><b>Clinicians</b><br/><span class='small'>Complement interviews with objective, longitudinal context across DSM‑5 domains.</span></div>",
+            "<div class='kpi-card'><b>Clinicians</b><br/><span class='small'>Complement interviews with objective, longitudinal context across DSM-5 domains.</span></div>",
             unsafe_allow_html=True,
         )
     with colC:
@@ -105,9 +116,9 @@ with st.container(border=True):
         st.caption("Review DSM-5 aligned indicators and daily signals.")
         if st.button("Open FASL + DSM Gate", use_container_width=True):
             try:
-                st.switch_page("pages/01_FASL_DSM_Gate.py")
+                st.switch_page("pages/01_Early_Signs_Overview.py")
             except Exception:
-                st.page_link("pages/01_FASL_DSM_Gate.py", label="Go to page")
+                st.page_link("pages/01_Early_Signs_Overview.py", label="Go to page")
 
     with nav2:
         st.markdown("**Network Metrics**")
@@ -131,7 +142,7 @@ with st.container(border=True):
 #     st.subheader("How it works (at a glance)")
 #     c1, c2, c3 = st.columns(3)
 #     c1.markdown("- Capture anonymized network metadata on the home router\n- Derive activity & timing features\n- Aggregate by day")
-#     c2.markdown("- Map features to DSM‑5 symptom domains\n- Build time series and baselines\n- Flag ‘OK’ vs ‘Caution’")
+#     c2.markdown("- Map features to DSM-5 symptom domains\n- Build time series and baselines\n- Flag "OK" vs "Caution"
 #     c3.markdown("- Review in the dashboard\n- Discuss patterns together\n- Use trends, not single days")
 
 # # ------------------------------- Load Excel --------------------------------
@@ -165,8 +176,8 @@ with st.container(border=True):
 
 # labels_df = load_metrics_catalog()
 
-# # ------------------------------- DSM‑5 names (hard-coded sequence) ---------
-# DSM5_ORDERED = [
+# # ------------------------------- DSM-5 names (hard-coded sequence) ---------
+# DSM-5_ORDERED = [
 #     ("C1", "Depressed mood"),
 #     ("C2", "Anhedonia (loss of interest/pleasure)"),
 #     ("C3", "Weight/appetite change"),
@@ -177,7 +188,7 @@ with st.container(border=True):
 #     ("C8", "Concentration / indecision"),
 #     ("C9", "Death / suicidality"),
 # ]
-# DSM5_MAP = {code: name for code, name in DSM5_ORDERED}
+# DSM-5_MAP = {code: name for code, name in DSM-5_ORDERED}
 # FINAL_SINK = "Depressed Mood"  # rightmost node
 
 # def stable_bucket(key: str, modulo: int) -> int:
@@ -195,7 +206,7 @@ with st.container(border=True):
 #     feature_nodes = list(dict.fromkeys(df["Label"].tolist()))  # unique, keep order
 
 #     # DSM nodes: always show all 9 (between Labels and final sink)
-#     dsm_nodes = [name for _, name in DSM5_ORDERED]
+#     dsm_nodes = [name for _, name in DSM-5_ORDERED]
 
 #     # Node list (Plotly defaults for style)
 #     all_nodes = [router] + partitions + users + feature_nodes + dsm_nodes + [FINAL_SINK]
@@ -204,26 +215,26 @@ with st.container(border=True):
 #     # --- Links ---
 #     src, tgt, val = [], [], []
 
-#     # Router → Partitions
+#     # Router -> Partitions
 #     for p in partitions:
 #         src.append(node_index[router]); tgt.append(node_index[p]); val.append(1)
 
-#     # Partitions → Users (deterministic assignment)
+#     # Partitions -> Users (deterministic assignment)
 #     for p in partitions:
 #         u = users[stable_bucket(p, len(users))]
 #         src.append(node_index[p]); tgt.append(node_index[u]); val.append(1)
 
-#     # Users → Feature Labels (deterministic assignment)
+#     # Users -> Feature Labels (deterministic assignment)
 #     feature_to_user = {feat: users[stable_bucket(feat, len(users))] for feat in feature_nodes}
 #     for feat, u in feature_to_user.items():
 #         src.append(node_index[u]); tgt.append(node_index[feat]); val.append(1)
 
-#     # Feature Label → DSM‑5 criterion (from Excel rows)
+#     # Feature Label -> DSM-5 criterion (from Excel rows)
 #     pair_counts = {}   # (label, dsm_name) -> count
 #     crit_counts = {}   # dsm_name -> total count
 #     for _, row in df.iterrows():
 #         feat_label = row["Label"] if row["Label"] else row["Feature"]
-#         dsm_name = DSM5_MAP.get(row["Criterion"])
+#         dsm_name = DSM-5_MAP.get(row["Criterion"])
 #         if not dsm_name:
 #             continue
 #         pair_counts[(feat_label, dsm_name)] = pair_counts.get((feat_label, dsm_name), 0) + 1
@@ -233,7 +244,7 @@ with st.container(border=True):
 #         if feat_label in node_index and dsm_name in node_index:
 #             src.append(node_index[feat_label]); tgt.append(node_index[dsm_name]); val.append(max(1, int(count)))
 
-#     # DSM‑5 criterion → FINAL_SINK (ensure visible flow; at least 1)
+#     # DSM-5 criterion -> FINAL_SINK (ensure visible flow; at least 1)
 #     for dsm_name in dsm_nodes:
 #         count = crit_counts.get(dsm_name, 0)
 #         src.append(node_index[dsm_name]); tgt.append(node_index[FINAL_SINK]); val.append(max(1, int(count)))
@@ -250,15 +261,15 @@ with st.container(border=True):
 
 # # ------------------------------- Render ------------------------------------
 # with st.container(border=True):
-#     st.subheader("Feature‑to‑Criterion Mapping")
-#     st.caption("Illustrative flow from network partitions to human‑readable features, DSM‑5 criteria, and an overall mood sink.")
+#     st.subheader("Feature-to-Criterion Mapping")
+#     st.caption("Illustrative flow from network partitions to human-readable features, DSM-5 criteria, and an overall mood sink.")
 #     st.plotly_chart(build_mapping_sankey(labels_df), use_container_width=True)
 
 # with st.container(border=True):
 #     st.subheader("Get started")
 #     st.markdown(
-#         "- Open ‘Upload and Overview’ to select datasets and inspect volume/quality.\n"
-#         "- Open ‘DSM‑5 Dashboard’ to review indicators by criterion and drill into details.\n"
+#         "- Open \"Upload and Overview\" to select datasets and inspect volume/quality.\\n"
+#         "- Open \"DSM-5 Dashboard\" to review indicators by criterion and drill into details.\\n"
 #         "- Use the sidebar to recompute caches if you add new data."
 #     )
 #     with st.popover("Privacy & data protection", use_container_width=True):
@@ -272,3 +283,8 @@ with st.container(border=True):
 # # ------------------------------- Footer ------------------------------------
 # st.markdown("---")
 # st.caption("This is a research prototype and not a medical device.")
+
+
+
+
+
