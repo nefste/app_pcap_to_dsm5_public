@@ -49,7 +49,11 @@ except Exception:
 
 @st.dialog("Login")
 def login():
-    st.image("utils/logo.svg", use_container_width=True)
+    try:
+        _logo_path = Path(__file__).resolve().parents[1] / "utils" / "logo.svg"
+        st.image(str(_logo_path), use_container_width=True)
+    except Exception:
+        st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/f/f8/HSG_Logo_DE_RGB.svg/1024px-HSG_Logo_DE_RGB.svg.png", use_container_width=True)
     st.subheader("👋🏻 welcome - please login")
     username = st.text_input("Username", placeholder="nef")
     password = st.text_input("Password", type="password")
