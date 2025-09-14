@@ -14,6 +14,7 @@ import streamlit as st
 from metrics.base_features import compute_daily_base_record
 from metrics.common import enrich_with_hostnames
 from md_explanations import MD_EXPLANATIONS
+from utils.auto_tune import auto_tune_for_criterion, AutoTuneResult
 from metrics.criterion1 import C1_DEFS
 from metrics.criterion2 import C2_DEFS
 from metrics.criterion3 import C3_DEFS
@@ -1219,6 +1220,92 @@ def _boxplot_with_ranges(
     st.plotly_chart(fig, use_container_width=True)
 
 
+def _boxplot_with_ranges_marks(
+    df: pd.DataFrame,
+    col: str,
+    lo: float,
+    mid: float,
+    hi: float,
+    invert: bool = False,
+    centers: tuple[float, float, float] | None = None,
+    boundaries: tuple[float, float] | None = None,
+    show_overlays: bool = True,
+):
+    import plotly.express as px, plotly.graph_objects as go
+    if col not in df.columns or df[col].dropna().empty:
+        st.info("No historical values available for this metric.")
+        return
+    series = df[col].replace([np.inf, -np.inf], np.nan).dropna()
+    fig = px.box(series, points="all")
+    fig.update_layout(title_text="")
+    fig.update_xaxes(visible=False)
+    fig.update_yaxes(title=None)
+    ymin = float(series.min()); ymax = float(series.max())
+    lo_draw = float(lo) if np.isfinite(lo) else ymin
+    hi_draw = float(hi) if np.isfinite(hi) else ymax
+    try:
+        good = "rgba(34,197,94,0.10)"; bad = "rgba(239,68,68,0.10)"
+        if lo_draw <= mid:
+            fig.add_hrect(y0=lo_draw, y1=mid, line_width=0, fillcolor=bad if invert else good, layer="below")
+        if mid <= hi_draw:
+            fig.add_hrect(y0=mid, y1=hi_draw, line_width=0, fillcolor=good if invert else bad, layer="below")
+        fig.add_hline(y=mid, line_dash="dot", line_color="gray")
+        if show_overlays:
+            if boundaries is not None:
+                t12, t23 = float(boundaries[0]), float(boundaries[1])
+                fig.add_hline(y=t12, line_dash="dashdot", line_color="#9333ea")
+                fig.add_hline(y=t23, line_dash="dashdot", line_color="#9333ea")
+            if centers is not None:
+                c1, c2, c3 = (float(centers[0]), float(centers[1]), float(centers[2]))
+                for c, colr in zip((c1, c2, c3), ("#0ea5e9", "#f59e0b", "#ef4444")):
+                    fig.add_hline(y=c, line_dash="solid", line_color=colr)
+        leg = [
+            go.Scatter(x=[None], y=[None], mode="lines", line=dict(color="#0ea5e9", width=3), name="Center lo"),
+            go.Scatter(x=[None], y=[None], mode="lines", line=dict(color="#f59e0b", width=3), name="Center mid"),
+            go.Scatter(x=[None], y=[None], mode="lines", line=dict(color="#ef4444", width=3), name="Center hi"),
+            go.Scatter(x=[None], y=[None], mode="lines", line=dict(color="#9333ea", width=3, dash="dashdot"), name="Boundary"),
+        ]
+        for tr in leg:
+            fig.add_trace(tr)
+    except Exception:
+        pass
+    st.plotly_chart(fig, use_container_width=True)
+
+
+def _boxplot_membership(
+    df: pd.DataFrame,
+    col: str,
+    lo: float,
+    mid: float,
+    hi: float,
+    invert: bool = False,
+    theta: float | None = None,
+):
+    import plotly.express as px
+    if col not in df.columns or df[col].dropna().empty:
+        st.info("No historical values available for this metric.")
+        return
+    series = df[col].replace([np.inf, -np.inf], np.nan).dropna()
+    mu_vals = series.apply(lambda x: mf_tri(float(x), float(lo), float(mid), float(hi), invert=bool(invert)))
+    mu_vals = mu_vals.replace([np.inf, -np.inf], np.nan).dropna()
+    if mu_vals.empty:
+        st.info("No valid values to normalize.")
+        return
+    fig = px.box(mu_vals, points="all", range_y=[0, 1])
+    fig.update_layout(title_text="")
+    fig.update_xaxes(visible=False)
+    fig.update_yaxes(title=None, range=[0, 1])
+    try:
+        good = "rgba(34,197,94,0.10)"; bad = "rgba(239,68,68,0.10)"
+        if theta is not None:
+            fig.add_hrect(y0=0, y1=float(theta), line_width=0, fillcolor=good, layer="below")
+            fig.add_hrect(y0=float(theta), y1=1, line_width=0, fillcolor=bad, layer="below")
+            fig.add_hline(y=float(theta), line_dash="dot", line_color="gray")
+    except Exception:
+        pass
+    st.plotly_chart(fig, use_container_width=True)
+
+
 def _mf_tri_latex(name: str, lo: float, mid: float, hi: float, invert: bool) -> str:
     """Return LaTeX for a triangular membership with given params."""
     def fmt(x: float) -> str:
@@ -1378,6 +1465,132 @@ for idx, (crit, label) in enumerate(CRIT_TABS):
             key=f"sel_{crit}",
         )
         cfg_state.setdefault(crit, {})
+        # Auto-tune controls and diagnostics
+        st.session_state.setdefault("fasl_autotune_debug", {})
+        st.session_state.setdefault("fasl_autotuned_flags", {})
+        with st.container(border=True):
+            st.markdown("**Auto-tune parameters for each metric**")
+            col_auto_btn, col_auto_opts = st.columns([1, 3])
+            with col_auto_btn:
+                if st.button(f"Auto-tune {crit}", key=f"auto_{crit}"):
+                    try:
+                        ws_label = st.session_state.get(f"auto_w_{crit}", "Spread (P90-P10)")
+                        _wmap = {"Spread (P90-P10)": "spread", "Variance": "variance", "Equal": "equal"}
+                        ws = _wmap.get(ws_label, "spread")
+                        res: AutoTuneResult = auto_tune_for_criterion(crit, selected, ALL_DAILY, HIW_MAP, weight_strategy=ws)
+                    except Exception:
+                        res: AutoTuneResult = auto_tune_for_criterion(crit, selected, ALL_DAILY, HIW_MAP)
+                    try:
+                        for m in [r.metric for r in res.metrics]:
+                            cfg_state[crit].setdefault(m, {"w": 0.1, "mf": {"type": "tri", "lo": 0.0, "mid": 0.0, "hi": 0.0, "invert": False}})
+                        for r in res.metrics:
+                            cfg_state[crit][r.metric]["w"] = float(r.weight)
+                            _hi = float(r.hi) if np.isfinite(float(r.hi)) else float(r.mid) + max(1e-6, abs(float(r.mid) - float(r.lo)) if np.isfinite(float(r.lo)) else 1.0)
+                            cfg_state[crit][r.metric]["mf"] = {"type": "tri", "lo": float(r.lo), "mid": float(r.mid), "hi": float(_hi), "invert": bool(r.invert)}
+                            st.session_state[f"w_{crit}_{r.metric}"] = float(r.weight)
+                            st.session_state[f"lo_{crit}_{r.metric}"] = float(r.lo)
+                            st.session_state[f"mid_{crit}_{r.metric}"] = float(r.mid)
+                            st.session_state[f"hi_{crit}_{r.metric}"] = float(_hi)
+                            st.session_state[f"inv_{crit}_{r.metric}"] = bool(r.invert)
+                            st.session_state[f"mft_{crit}_{r.metric}"] = "tri"
+                        st.session_state["fasl_autotune_debug"][crit] = res
+                        st.session_state["fasl_autotuned_flags"][crit] = True
+                        try:
+                            st.toast("Auto-tuned parameters applied.")
+                        except Exception:
+                            st.success("Auto-tuned parameters applied.")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Auto-tune failed: {e}")
+                if st.session_state.get("fasl_autotuned_flags", {}).get(crit):
+                    st.markdown("<span style='background:#dcfce7; color:#065f46; padding:3px 8px; border-radius:6px; font-size:0.85rem;'>auto-tuned</span>", unsafe_allow_html=True)
+            with col_auto_opts:
+                st.session_state.setdefault(f"auto_k_{crit}", 3)
+                st.session_state.setdefault(f"auto_w_{crit}", "Spread (P90-P10)")
+                st.session_state.setdefault(f"auto_z_{crit}", True)
+                try:
+                    with st.popover("Auto-tune options"):
+                        st.slider("k clusters (PCA plot)", 2, 8, value=int(st.session_state.get(f"auto_k_{crit}", 3)), key=f"auto_k_{crit}")
+                        st.selectbox("Weighting", ["Spread (P90-P10)", "Variance", "Equal"], key=f"auto_w_{crit}")
+                        st.checkbox("Standardize (z-score) for PCA", value=bool(st.session_state.get(f"auto_z_{crit}", True)), key=f"auto_z_{crit}")
+                except Exception:
+                    pass
+                _res = st.session_state.get("fasl_autotune_debug", {}).get(crit)
+                if _res is not None:
+                    with st.expander(f"Auto-tune diagnostics - {crit}", expanded=False):
+                        res = _res
+                        show_ov = st.checkbox("Show overlays (centers/boundaries)", value=True, key=f"diag_ov_{crit}")
+                        for r in getattr(res, 'metrics', []) or []:
+                            st.markdown(f"**{r.metric}**")
+                            c1d, c2d = st.columns([2, 3])
+                            with c1d:
+                                try:
+                                    inv_bg = "#dcfce7" if bool(r.invert) else "#e2e8f0"; inv_fg = "#065f46" if bool(r.invert) else "#334155"
+                                    inv_txt = "Invert: True" if bool(r.invert) else "Invert: False"
+                                    w_bg = "#eff6ff"; w_fg = "#1e3a8a"
+                                    st.markdown(
+                                        f"<div style='display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:6px;'>"
+                                        f"<span style='background:{w_bg}; color:{w_fg}; padding:2px 8px; border-radius:6px; font-size:0.85rem;'>Weight: {r.weight:.3f}</span>"
+                                        f"<span style='background:{inv_bg}; color:{inv_fg}; padding:2px 8px; border-radius:6px; font-size:0.85rem;'>{inv_txt}</span>"
+                                        f"</div>",
+                                        unsafe_allow_html=True,
+                                    )
+                                except Exception:
+                                    st.caption(f"Weight: {r.weight:.3f} • Invert: {bool(r.invert)}")
+                                try:
+                                    c1v, c2v, c3v = (float(r.centers[0]), float(r.centers[1]), float(r.centers[2]))
+                                    b1, b2 = (float(r.boundaries[0]), float(r.boundaries[1]))
+                                    sq = "&#9632;"
+                                    chips = (
+                                        f"<span style='color:#0ea5e9'>{sq}</span> center lo: {c1v:.3g}  "
+                                        f"<span style='color:#f59e0b'>{sq}</span> center mid: {c2v:.3g}  "
+                                        f"<span style='color:#ef4444'>{sq}</span> center hi: {c3v:.3g}<br>"
+                                        f"<span style='color:#9333ea'>{sq}</span> t12: {b1:.3g}  <span style='color:#9333ea'>{sq}</span> t23: {b2:.3g}"
+                                    )
+                                    st.markdown(chips, unsafe_allow_html=True)
+                                except Exception:
+                                    pass
+                                try:
+                                    _hi_eval = float(r.hi if np.isfinite(r.hi) else r.mid)
+                                    with st.popover("Details"):
+                                        st.markdown(
+                                            "- Centers (lo/mid/hi): we group daily values into three clusters (low, medium, high) and take the average of each cluster (the centers).\n"
+                                            "- Thresholds (t12, t23): midpoints between low–mid and mid–high centers; they split the range.\n"
+                                            "- Membership (mu in [0,1]): triangular shape with lo/mid/hi; near mid gives mu~1, far gives mu~0; 'invert' flips direction."
+                                        )
+                                        st.latex(r"c_{lo} < c_{mid} < c_{hi}")
+                                        st.latex(r"t_{12} = \\tfrac{c_{lo} + c_{mid}}{2},\\quad t_{23} = \\tfrac{c_{mid} + c_{hi}}{2}")
+                                        st.markdown("We map values to [0,1] via the triangular membership:")
+                                        st.latex(_mf_tri_latex(r.metric, float(r.lo), float(r.mid), float(_hi_eval), bool(r.invert)))
+                                except Exception:
+                                    pass
+                            with c2d:
+                                try:
+                                    tab_raw, tab_norm = st.tabs(["Raw", "Normalized (mu)"])
+                                    with tab_raw:
+                                        _boxplot_with_ranges_marks(
+                                            ALL_DAILY,
+                                            r.metric,
+                                            float(r.lo),
+                                            float(r.mid),
+                                            float(r.hi if np.isfinite(r.hi) else r.mid),
+                                            invert=bool(r.invert),
+                                            centers=(float(r.centers[0]), float(r.centers[1]), float(r.centers[2])),
+                                            boundaries=(float(r.boundaries[0]), float(r.boundaries[1])),
+                                            show_overlays=bool(show_ov),
+                                        )
+                                    with tab_norm:
+                                        _boxplot_membership(
+                                            ALL_DAILY,
+                                            r.metric,
+                                            float(r.lo),
+                                            float(r.mid),
+                                            float(r.hi if np.isfinite(r.hi) else r.mid),
+                                            invert=bool(r.invert),
+                                            theta=float(theta_default),
+                                        )
+                                except Exception:
+                                    st.info("No values for plotting.")
         # Drop metrics not available anymore
         for m in list(cfg_state[crit].keys()):
             if m not in available or m not in selected:
