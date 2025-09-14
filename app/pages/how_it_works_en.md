@@ -1,4 +1,4 @@
-## What is the idea?
+### Idea
 
 * **“Fuzzy”**: instead of hard yes/no thresholds you use $\color{#1f77b4}{\text{membership functions}}$ $\mu\in[0,1]$. A metric can be "a little unusual" (e.g. $\mu=0.4$) or "very unusual" ($\mu\approx1$).
 * **“Additive”**: multiple fuzzy signals per criterion are weighted and summed (weights $\color{#2ca02c}{w}$ add up to 1). This yields a likelihood $\color{#ff7f0e}{L_k\in[0,1]}$ for criterion $\color{#9467bd}{k}$.
@@ -6,7 +6,7 @@
 
 ---
 
-## The formula
+### Formula
 
 For each criterion $\color{#9467bd}{k}$:
 
@@ -23,7 +23,7 @@ $$
 
 ---
 
-## Membership functions (intuitive)
+### Membership Functions
 
 Example: **linear** increase when something "keeps getting later":
 
@@ -52,7 +52,7 @@ Choose $a,b,c$ so that **0** means "not remarkable" and **1** means "clearly rem
 
 ---
 
-## Example: Criterion **“Sleep disturbance”** (insomnia/hypersomnia)
+### Example: Criterion **“Sleep disturbance”** (insomnia/hypersomnia)
 
 We assume three signals on a given day:
 
@@ -66,7 +66,7 @@ $$
 \color{#2ca02c}{w_{\text{short}}=0.5,\quad w_{\text{irreg}}=0.3,\quad w_{\text{late}}=0.2}
 $$
 
-### Define memberships
+#### Define memberships
 
 * **Short sleep duration** $h$ (linear; shorter → more abnormal):
 
@@ -103,7 +103,7 @@ $$
 
 > **Parameters** are examples – adapt them to your population.
 
-### Plug in daily values
+#### Plug in daily values
 
 Assume on **day X**:
 
@@ -111,7 +111,7 @@ Assume on **day X**:
 * Irregularity $\sigma = 1.8\,\text{h}$ → $\mu_{\text{irreg}} \approx 0.87$
 * Sleep onset $m = 110\,\text{min}$ (23:50) → $\mu_{\text{late}} \approx 0.89$
 
-### Additively combine (apply weights)
+#### Additively combine (apply weights)
 
 $$
 \begin{aligned}
@@ -126,7 +126,7 @@ $$
 
 ---
 
-## From day to DSM logic (14‑day window)
+### Day Metrics to DSM Logic (14‑day window)
 
 1. Repeat the calculation for each of the last 14 days → get 14 values $\color{#ff7f0e}{L_{\text{sleep}}(t)}$.
 2. **Criterion present?** Define a threshold, e.g. $\color{#d62728}{\theta=0.7}$. Count how many days satisfy $L_{\text{sleep}}(t) \ge \theta$.
@@ -136,38 +136,8 @@ $$
 
 ---
 
-## Second example: **Anhedonia** (loss of interest)
 
-Take four metrics (drops vs personal baseline):
-
-* $\mu_{\text{chat\_drop}}$: chat-session count ↓
-* $\mu_{\text{domains\_drop}}$: unique domains ↓
-* $\mu_{\text{prod\_drop}}$: productivity site hits ↓
-* $\mu_{\text{up\_rate\_drop}}$: upstream chat rate ↓
-
-**Weights:** $0.35, 0.30, 0.20, 0.15$
-
-**Example day:**
-
-* Chat −50% → $\mu=1.0$
-* Domains −30% → $\mu=0.75$
-* Productivity −60% → $\mu=1.0$
-* Upstream −37.5% → $\mu\approx0.75$
-
-$$
-\begin{aligned}
-\color{#ff7f0e}{L_{\text{anhedonia}}}
-&= 0.35\cdot1.0 + 0.30\cdot0.75 + 0.20\cdot1.0 + 0.15\cdot0.75\\
-&= 0.35 + 0.225 + 0.20 + 0.1125\\
-&= 0.8875 \Rightarrow \boxed{\approx 0.89}
-\end{aligned}
-$$
-
-Again, check across 14 days: if on ≥10 days the value ≥ $\color{#d62728}{\theta}$ → criterion present.
-
----
-
-## Overall decision: DSM‑Gate
+### Overall Decision: DSM‑Gate
 
 * **Per criterion:** determine presence via 14‑day rule.
 * **Overall:** episode is likely if
@@ -179,7 +149,7 @@ Again, check across 14 days: if on ≥10 days the value ≥ $\color{#d62728}{\th
 
 ---
 
-## Why this is robust and explainable
+### Robust and Explainable Approach
 
 * **Robust** because fuzzy: small fluctuations around thresholds do not flip decisions instantly.
 * **Explainable** because additive: you see per criterion which metrics with which weights contributed how much.

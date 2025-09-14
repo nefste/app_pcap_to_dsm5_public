@@ -452,14 +452,17 @@ with st.sidebar:
     cfg_state["core_symptoms"] = core_criteria
 
 # All‑days aufbauen (leichtgewichtige Rekonstruktion)
-with st.status("Indexing available days for the current selection…", expanded=False) as s1:
-    days = available_days_for(selected_base_names)
-    if not days:
-        s1.update(
-            label="No 5‑minute partitions found for the current selection.", state="error"
-        )
-        st.stop()
-    s1.update(label=f"Found {len(days)} day(s).", state="complete")
+# Show the two status panels side‑by‑side
+col_s_left, col_s_right = st.columns(2)
+with col_s_left:
+    with st.status("Indexing available days for the current selection…", expanded=False) as s1:
+        days = available_days_for(selected_base_names)
+        if not days:
+            s1.update(
+                label="No 5‑minute partitions found for the current selection.", state="error"
+            )
+            st.stop()
+        s1.update(label=f"Found {len(days)} day(s).", state="complete")
 
 
 def _cache_key_for_selection(base_names: list[str]) -> str:
@@ -472,41 +475,42 @@ def _cache_path_for_selection(base_names: list[str]) -> str:
     )
 
 
-with st.status(
-    "Building per‑day base features (ALL_DAILY)…", expanded=False
-) as s2:
-    cpath = _cache_path_for_selection(selected_base_names)
-    loaded = pd.DataFrame()
-    if os.path.isfile(cpath):
-        try:
-            loaded = pd.read_csv(cpath, parse_dates=["Date"])
-        except Exception:
-            loaded = pd.DataFrame()
-    want = set(pd.to_datetime(days).normalize())
-    have = (
-        set(pd.to_datetime(loaded["Date"]).dt.normalize())
-        if (not loaded.empty and "Date" in loaded.columns)
-        else set()
-    )
-    missing = sorted(list(want - have))
+with col_s_right:
+    with st.status(
+        "Building per‑day base features (ALL_DAILY)…", expanded=False
+    ) as s2:
+        cpath = _cache_path_for_selection(selected_base_names)
+        loaded = pd.DataFrame()
+        if os.path.isfile(cpath):
+            try:
+                loaded = pd.read_csv(cpath, parse_dates=["Date"])
+            except Exception:
+                loaded = pd.DataFrame()
+        want = set(pd.to_datetime(days).normalize())
+        have = (
+            set(pd.to_datetime(loaded["Date"]).dt.normalize())
+            if (not loaded.empty and "Date" in loaded.columns)
+            else set()
+        )
+        missing = sorted(list(want - have))
 
-    if loaded.empty or missing:
-        add_rows = compute_all_daily(selected_base_names, missing if missing else days)
-        ALL_DAILY = (
-            pd.concat([loaded, add_rows], ignore_index=True)
-            if not loaded.empty
-            else add_rows
-        ).sort_values("Date")
-        try:
-            ALL_DAILY.to_csv(cpath, index=False)
-        except Exception:
-            pass
-    else:
-        ALL_DAILY = loaded.sort_values("Date")
-    s2.update(
-        label=f"DONE: {len(ALL_DAILY)} day(s) ready (cache: {'used' if os.path.isfile(cpath) else 'new'}).",
-        state="complete",
-    )
+        if loaded.empty or missing:
+            add_rows = compute_all_daily(selected_base_names, missing if missing else days)
+            ALL_DAILY = (
+                pd.concat([loaded, add_rows], ignore_index=True)
+                if not loaded.empty
+                else add_rows
+            ).sort_values("Date")
+            try:
+                ALL_DAILY.to_csv(cpath, index=False)
+            except Exception:
+                pass
+        else:
+            ALL_DAILY = loaded.sort_values("Date")
+        s2.update(
+            label=f"DONE: {len(ALL_DAILY)} day(s) ready (cache: {'used' if os.path.isfile(cpath) else 'new'}).",
+            state="complete",
+        )
 
 
     if ALL_DAILY.empty:
@@ -687,8 +691,7 @@ DF_L = pd.DataFrame(
     {"Date": dates, **{f"L_{c}": pd.Series(vals[c]) for c in crit_cols}}
 ).sort_values("Date")
 
-# Summary metrics directly below the subtitle and gauge tabs (average/day)
-# Compute DSM-Gate presence flags for summary metrics
+## Compute DSM‑Gate presence flags for summary metrics
 present = {}
 for crit in crit_cols:
     s = DF_L[f"L_{crit}"] if f"L_{crit}" in DF_L.columns else pd.Series(dtype=float)
@@ -699,8 +702,16 @@ core_ok = any(present.get(c, False) for c in core_criteria)
 total_present = int(sum(1 for v in present.values() if v))
 episode_likely = core_ok and (total_present >= 5)
 
-# Render summary cards
 st.write("---")
+st.subheader("Criterion Likelihoods and DSM-Gate")
+st.caption(
+    f"""
+    The DSM‑Gate uses a rolling window M={int(cfg_state.get('M', 14))} days and requires N={int(cfg_state.get('N', 10))} days ≥ θ to mark a criterion as present.
+    A depressive episode is likely when ≥5 criteria are present and at least one core symptom ({', '.join(cfg_state.get('core_symptoms', ['C2']))}) is present.
+    """
+)
+
+# Place summary cards directly under the subheader with background colors
 GREEN_BG = "#d1fae5"
 RED_BG = "#fee2e2"
 cols_summary = st.columns(3)
@@ -739,23 +750,14 @@ with cols_summary[2]:
         unsafe_allow_html=True,
     )
 
-
-st.write("---")
-st.subheader("Criterion Likelihoods and DSM-Gate")
-st.write(
-    f"""
-    The DSM‑Gate uses a rolling window M={int(cfg_state.get('M', 14))} days and requires N={int(cfg_state.get('N', 10))} days ≥ θ to mark a criterion as present.
-    A depressive episode is likely when ≥5 criteria are present and at least one core symptom ({', '.join(cfg_state.get('core_symptoms', ['C2']))}) is present.
-    """
-)
-
+st.write("  ")
 with st.expander("DSM-5 Diagnostic Reference", expanded=False):
     st.markdown(
         """
     DSM‑5 describes a Major Depressive Episode as having at least 5 symptoms present during the same 2‑week period, and at least one is either depressed mood or markedly diminished interest/pleasure (anhedonia). This page implements a transparent, rule‑based approximation: daily likelihoods (L_k) aggregated over a rolling window M with threshold θ and count N. Tuning M/N/θ adjusts sensitivity while staying faithful to the spirit of the DSM‑5 criteria.
     """
     )
-
+st.write("  ")
 
 # Compute average likelihood per criterion (all days), pick top 6 (shared)
 avg_list: list[tuple[str, float]] = []
