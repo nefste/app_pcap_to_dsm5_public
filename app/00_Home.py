@@ -69,16 +69,18 @@ with st.container(border=True):
             </div>""",
             unsafe_allow_html=True,
         )
-        st.write("---")
-        st.info("""ℹ️ This application is a research tool intended to support conversation and early triage.
-            It is not a medical or diagnostic device.
-            The calculated metrics, likelihoods, and visualizations are experimental and may contain errors.
-            The underlying data do not represent actual user behavior and should not be relied upon for diagnosis or clinical decision-making.
-            Always seek advice from qualified health professionals for any questions or concerns regarding mental health.""")
+        st.write(" ")
+        with st.popover("ℹ️ Disclaimer"):
+            st.info("""ℹ️ This application is a research tool intended to support conversation and early triage.
+                It is not a medical or diagnostic device.
+                The calculated metrics, likelihoods, and visualizations are experimental and may contain errors.
+                The underlying data do not represent actual user behavior and should not be relied upon for diagnosis or clinical decision-making.
+                Always seek advice from qualified health professionals for any questions or concerns regarding mental health.""")
     with c3:
         st.image(
             "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f8/HSG_Logo_DE_RGB.svg/1024px-HSG_Logo_DE_RGB.svg.png"
         )
+    st.write("---")
     img_path = Path(__file__).resolve().parent / "utils" / "overview_app_visualisations.png"
     st.image(str(img_path))
 
