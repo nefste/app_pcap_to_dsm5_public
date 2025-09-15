@@ -278,11 +278,8 @@ with st.expander("🤓 How it works", expanded=False):
     how_md_path = Path(__file__).with_name("how_it_works_en.md")
     _md = how_md_path.read_text(encoding="utf-8")
     try:
-        # Remove DQI sentence
         _md = re.sub(r"^> \*\*Data quality \(DQI\)\*\*:[^\n]*\n", "", _md, flags=re.M)
         # Remove the entire 'Second example: Anhedonia' section up to the next horizontal rule
-        _md = re.sub(r"^## Second example:.*?(?:\n---\n)", "", _md, flags=re.S | re.M)
-        # Fix any stray $ inside the display equation if still present
         _md = _md.replace("$\\color{#ff7f0e}{L_k}", "\\color{#ff7f0e}{L_k}")
         _md = _md.replace(")$\n$$", ")\n$$")
     except Exception:

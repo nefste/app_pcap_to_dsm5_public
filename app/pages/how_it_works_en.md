@@ -2,7 +2,8 @@
 
 * **“Fuzzy”**: instead of hard yes/no thresholds you use $\color{#1f77b4}{\text{membership functions}}$ $\mu\in[0,1]$. A metric can be "a little unusual" (e.g. $\mu=0.4$) or "very unusual" ($\mu\approx1$).
 * **“Additive”**: multiple fuzzy signals per criterion are weighted and summed (weights $\color{#2ca02c}{w}$ add up to 1). This yields a likelihood $\color{#ff7f0e}{L_k\in[0,1]}$ for criterion $\color{#9467bd}{k}$.
-* **DSM‑Gate**: clinically consistent logic: a criterion counts as present when $\color{#ff7f0e}{L_k}$ is high on "most days" (e.g. ≥10/14) in a 14‑day window. An episode is **likely** when ≥5 criteria are present and at least one core symptom (Mood or Anhedonia) is included.
+* **DSM‑Gate**: clinically consistent logic: a criterion counts as present when 
+$\color{#ff7f0e}{L_k\in[0,1]}$ is high on "most days" (e.g. ≥10/14) in a 14‑day window. An episode is **likely** when ≥5 criteria are present and at least one core symptom (Mood or Anhedonia) is included.
 
 ---
 

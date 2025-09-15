@@ -1,6 +1,5 @@
 <svg width="520" height="120" viewBox="0 0 520 120" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
-  <title id="title">CareNet — Supporting Conversations through Network Insights</title>
-  <desc id="desc">Minimal logo with a chat bubble containing a small network diagram, alongside the word CareNet and a tagline.</desc>
+  <title id="title">CareNet — mental health awareness through network traffic insights</title>
 
   <!-- Icon -->
   <g transform="translate(10,18)" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -20,7 +19,7 @@
       CareNet
     </text>
     <text x="0" y="76" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, ui-sans-serif" font-weight="400" font-size="16" opacity="0.72">
-      Supporting Conversations through Network Insights
+      mental health awareness through network traffic insights
     </text>
   </g>
 </svg>

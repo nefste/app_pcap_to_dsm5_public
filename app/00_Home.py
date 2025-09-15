@@ -85,6 +85,42 @@ with st.container(border=True):
     st.image(str(img_path))
 
 
+    st.markdown(
+        """
+        <style>
+          .methodology { font-size: 0.98rem; line-height: 1.35; }
+          .methodology .step { margin: 0.75rem 0 0.25rem; }
+          .methodology .num {
+             display:inline-block; width:1.6rem; height:1.6rem;
+             border-radius:0.8rem; background:#E6F4EA; color:#2E7D32;
+             font-weight:700; text-align:center; line-height:1.6rem; margin-right:0.5rem;
+          }
+          .methodology .title { font-weight:700; font-size:1.05rem; }
+          .methodology .hint { color:#5b5b5b; font-size:0.92rem; }
+        </style>
+        <div class="methodology">
+        <br>
+          <div class="step"><span class="num">1</span><span class="title">Data Collection and Preparation</span></div>
+          <div class="hint">You provide network capture files (PCAP). We do <b>not read messages or content</b>. Depending on how the capture was made, the <b>internet address (DNS name)</b> of a service (e.g., <i>example.com</i>) can be visible. We group activity into privacy‑aware <b>5‑minute blocks</b> and store them efficiently (Parquet) for fast processing.</div>
+
+          <div class="step"><span class="num">2</span><span class="title">Network Metrics</span></div>
+          <div class="hint">Every metric is calculated and explained in <b>daily context</b>, such as “more late‑night activity,” “less daytime activity,” or “irregular schedule.” From the 5‑minute blocks we summarize simple signals (timing, regularity, volume, changes over days) and align them to DSM‑5 areas like <i>sleep</i>, <i>activity</i>, or <i>concentration</i>.</div>
+
+          <div class="step"><span class="num">3</span><span class="title">Parameter Tuning</span></div>
+          <div class="hint">You can set <b>weights</b> and <b>thresholds</b> yourself to decide how strongly each metric should count for its DSM‑5 area. In addition, a <b>prototype auto‑tuning</b> can learn values from your own baseline once enough days are available, which may outperform manual settings for some people. <i>Status:</i> implemented as a prototype (not enabled by default and <b>not fully tested</b> yet).</div>
+
+          <div class="step"><span class="num">4</span><span class="title">Criterion Likelihood</span></div>
+          <div class="hint">Tuned metrics are combined into a daily, <b>explainable</b> indicator (likelihood) for each DSM‑5 criterion. <b>Transparency</b> matters. You can see which metrics drove a change, helping clinicians and families ask the right questions. Important to mention is that this is a <b>supportive tool</b>, not a diagnosis!</div>
+
+          <div class="step"><span class="num">5</span><span class="title">Overall Indicator</span></div>
+          <div class="hint">A <b>very rough</b> consolidated signal that summarizes how many criteria are elevated and whether core symptoms are present, helpful for a quick view when there is no time to inspect each criterion. You can always go back later to review past patterns <i>retrospectively</i>, which may also help prevent future episodes. <br></div>
+        <br>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 # ------------------------------- Audience / value ---------------------------
 with st.container(border=True):
     st.subheader("Target Group")
