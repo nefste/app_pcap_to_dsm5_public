@@ -272,7 +272,7 @@ def any_parquet_has_ip_columns(base_names: list[str] | None = None, sample_per_d
         return False
 
 # -------------------- Page Title --------------------
-st.title("03_User_and_Network_Settings.py")
+st.title("03 User and Network Settings")
 
 # ===================== USER PROFILING (Independent) =====================
 with st.container(border=True):
