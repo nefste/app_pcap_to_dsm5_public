@@ -1,6 +1,8 @@
 # pages/1_Upload_and_Overview.py
 
 import os, re, hashlib
+import json
+import uuid
 import logging as _logging
 
 os.environ.setdefault("SCAPY_USE_LIBPCAP", "no")
@@ -18,6 +20,7 @@ from scapy.all import IP, TCP, UDP, DNS, DNSRR, PcapReader
 from scapy.utils import PcapNgReader
 import pyarrow as pa
 import pyarrow.parquet as pq
+from utils.acronyms import render_acronyms_helper_in_sidebar
 
 from metrics.common import enrich_with_hostnames, ensure_full_day_minutes
 
@@ -58,9 +61,14 @@ def login():
 if "logged_in" not in st.session_state or not st.session_state.logged_in:
     login(); st.stop()
 
+# Sidebar: helper dialog just below the page selector
+render_acronyms_helper_in_sidebar()
+
 # -------------------- CONFIG --------------------
 APP_DIR = Path(__file__).resolve().parents[1]
 PROCESSED_DIR = APP_DIR / "processed_parquet"; os.makedirs(PROCESSED_DIR, exist_ok=True)
+PROFILES_PATH = APP_DIR / "user_profiles.json"
+IP_CATALOG_PATH = PROCESSED_DIR / "known_ips.txt"
 
 RESAMPLE_FREQ = "1Min"; PARTITION_MINUTES = 5; COMMIT_LAG_WINDOWS = 2
 
@@ -71,6 +79,429 @@ def sanitize_name(name: str) -> str:
 
 def floor_to_interval(ts: datetime, minutes: int = PARTITION_MINUTES) -> datetime:
     return ts.replace(second=0, microsecond=0, minute=(ts.minute // minutes) * minutes)
+
+# -------------------- User Profiles (persisted JSON) --------------------
+def _default_profiles() -> dict:
+    return {"profiles": []}
+
+# -------------------- Avatar helpers --------------------
+DEFAULT_AVATAR_PALETTES = [
+    ["#3b82f6", "#22c55e", "#f59e0b", "#ef4444", "#8b5cf6"],
+    ["#0ea5e9", "#10b981", "#a3e635", "#f97316", "#f43f5e"],
+    ["#9333ea", "#2563eb", "#16a34a", "#ca8a04", "#dc2626"],
+    ["#14b8a6", "#6366f1", "#22c55e", "#eab308", "#f97316"],
+    ["#ef4444", "#f59e0b", "#84cc16", "#06b6d4", "#8b5cf6"],
+]
+DEFAULT_AVATAR_BACKGROUNDS = ["#f3f4f6", "#fef3c7", "#eef2ff", "#ecfeff", "#f1f5f9"]
+
+def _hash_int(s: str) -> int:
+    try:
+        return int(hashlib.md5(s.encode("utf-8")).hexdigest()[:8], 16)
+    except Exception:
+        return 0
+
+def _compute_avatar_params(seed: str) -> dict:
+    h = _hash_int(seed or "seed")
+    pi = h % len(DEFAULT_AVATAR_PALETTES)
+    bi = (h // 7) % len(DEFAULT_AVATAR_BACKGROUNDS)
+    return {
+        "avatar_seed": seed or "seed",
+        "avatar_fg": DEFAULT_AVATAR_PALETTES[pi],
+        "avatar_bg": DEFAULT_AVATAR_BACKGROUNDS[bi],
+        "avatar_grid": [5, 5],
+        "avatar_size": [160, 160],
+    }
+
+def load_profiles() -> dict:
+    try:
+        if not PROFILES_PATH.exists():
+            save_profiles(_default_profiles())
+        with open(PROFILES_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, dict) or "profiles" not in data:
+            return _default_profiles()
+        # ensure schema minimally
+        changed = False
+        for p in data.get("profiles", []):
+            # enforce id as username if available (keeps things simple)
+            if p.get("username"):
+                if p.get("id") != p.get("username"):
+                    p["id"] = p.get("username"); changed = True
+            p.setdefault("id", str(uuid.uuid4()))
+            p.setdefault("username", "")
+            p.setdefault("birthdate", None)
+            p.setdefault("workdays", ["Mon","Tue","Wed","Thu","Fri"])
+            p.setdefault("home_office_days", [])
+            p.setdefault("work_start", "09:00")
+            p.setdefault("work_end", "17:00")
+            p.setdefault("lunch_start", "12:00")  # now labeled as work break
+            p.setdefault("lunch_end", "13:00")
+            p.setdefault("sleep_start", "23:00")
+            p.setdefault("wakeup_time", "07:00")
+            p.setdefault("hobbies", "")
+            p.setdefault("notes", "")
+            p.setdefault("ip_addresses", [])
+            # Avatar params: set once and persist
+            if not p.get("avatar_seed"):
+                p["avatar_seed"] = p.get("username") or p.get("id") or "seed"; changed = True
+            if not p.get("avatar_fg") or not p.get("avatar_bg") or not p.get("avatar_grid") or not p.get("avatar_size"):
+                ap = _compute_avatar_params(p.get("avatar_seed") or "seed")
+                p.setdefault("avatar_fg", ap["avatar_fg"])
+                p.setdefault("avatar_bg", ap["avatar_bg"])
+                p.setdefault("avatar_grid", ap["avatar_grid"])
+                p.setdefault("avatar_size", ap["avatar_size"])
+                changed = True
+        if changed:
+            try:
+                save_profiles(data)
+            except Exception:
+                pass
+        return data
+    except Exception:
+        return _default_profiles()
+
+def save_profiles(data: dict) -> None:
+    try:
+        with open(PROFILES_PATH, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+def ip_to_user_map(profiles: dict) -> dict:
+    out = {}
+    for p in profiles.get("profiles", []):
+        uname = p.get("username") or ""
+        for ip in p.get("ip_addresses", []) or []:
+            out[str(ip)] = uname
+    return out
+
+# -------------------- Known IP catalog helpers --------------------
+def load_known_ips() -> set[str]:
+    try:
+        with open(IP_CATALOG_PATH, "r", encoding="utf-8") as f:
+            return {line.strip() for line in f if str(line).strip()}
+    except Exception:
+        return set()
+
+def save_known_ips(ips: set[str]) -> None:
+    try:
+        with open(IP_CATALOG_PATH, "w", encoding="utf-8") as f:
+            for ip in sorted(ips):
+                f.write(f"{ip}\n")
+    except Exception:
+        pass
+
+def scan_parquet_for_ips(base_names: list[str] | None = None, status=None) -> set[str]:
+    """Scan Parquet partitions for Source/Destination IPs and return a set.
+    If base_names is None, scans all datasets under PROCESSED_DIR.
+    """
+    all_ips: set[str] = set()
+    try:
+        if base_names is None:
+            base_names = [d for d in os.listdir(PROCESSED_DIR) if os.path.isdir(os.path.join(PROCESSED_DIR, d))]
+        for bn in sorted(base_names):
+            ddir = os.path.join(PROCESSED_DIR, bn)
+            files = [os.path.join(ddir, f) for f in os.listdir(ddir) if f.endswith('.parquet')]
+            if status is not None:
+                status.write(f"Scanning {bn} ({len(files)} files)")
+            for fp in files:
+                try:
+                    pf = pq.ParquetFile(fp)
+                    cols = [c for c in ["Source IP","Destination IP"] if c in pf.schema.names]
+                    if not cols:
+                        continue
+                    for i in range(pf.num_row_groups):
+                        try:
+                            tbl = pf.read_row_group(i, columns=cols)
+                            # Avoid full pandas for memory; iterate columns
+                            for cname in cols:
+                                if cname in tbl.schema.names:
+                                    arr = tbl.column(cname).to_pylist()
+                                    for v in arr:
+                                        if v is not None and str(v):
+                                            all_ips.add(str(v))
+                        except Exception:
+                            continue
+                except Exception:
+                    continue
+        return all_ips
+    except Exception:
+        return all_ips
+
+def scan_feature_cache_for_ips(status=None) -> set[str]:
+    """Fallback: try to scan feature_cache CSV files for any IPv4-like tokens."""
+    ips: set[str] = set()
+    try:
+        cache_dir = APP_DIR / "feature_cache"
+        if not cache_dir.exists():
+            return ips
+        files = [str(cache_dir / f) for f in os.listdir(cache_dir) if f.lower().endswith(".csv")]
+        ip_re = re.compile(r"\b(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)\b")
+        if status is not None:
+            status.write(f"Scanning feature_cache CSVs: {len(files)} file(s)")
+        for fp in files:
+            try:
+                with open(fp, "r", encoding="utf-8", errors="ignore") as f:
+                    for line in f:
+                        for m in ip_re.findall(line):
+                            ips.add(m)
+            except Exception:
+                continue
+        return ips
+    except Exception:
+        return ips
+
+def any_parquet_has_ip_columns(base_names: list[str] | None = None, sample_per_ds: int = 3, status=None) -> bool:
+    """Quick check: does any Parquet file contain 'Source IP' or 'Destination IP' columns?"""
+    try:
+        if base_names is None:
+            base_names = [d for d in os.listdir(PROCESSED_DIR) if os.path.isdir(os.path.join(PROCESSED_DIR, d))]
+        for bn in sorted(base_names):
+            ddir = os.path.join(PROCESSED_DIR, bn)
+            files = [os.path.join(ddir, f) for f in os.listdir(ddir) if f.endswith('.parquet')]
+            for fp in files[:sample_per_ds]:
+                try:
+                    pf = pq.ParquetFile(fp)
+                    names = set(pf.schema.names)
+                    if ("Source IP" in names) or ("Destination IP" in names):
+                        return True
+                except Exception:
+                    continue
+        return False
+    except Exception:
+        return False
+
+# -------------------- Page Title --------------------
+st.title("03_User_and_Network_Settings.py")
+
+# ===================== USER PROFILING (Independent) =====================
+with st.container(border=True):
+    st.header("User Profiling")
+    st.caption("Select an existing profile or create a new one. Map IPs at the end.")
+
+    # Profiles UI
+    profiles_data = load_profiles()
+    profs = profiles_data.get("profiles", [])
+    usernames = sorted({p.get("username") for p in profs if p.get("username")})
+
+    # Layout with avatar on the right spanning two rows
+    left, right = st.columns([3,1])
+    with left:
+        selection = st.selectbox("User Profile", options=["Create User Profile"] + usernames, index=0)
+        is_new = selection == "Create User Profile"
+        current = ({k: v for k, v in next((p for p in profs if p.get("username") == selection), {}).items()} if not is_new else {})
+
+        # Core identity
+        c1, c2 = st.columns(2)
+        username = c1.text_input("User Name", value=current.get("username", ""))
+        birthdate = c2.date_input(
+            "Birthday",
+            value=(pd.Timestamp(current.get("birthdate")) if current.get("birthdate") else pd.Timestamp("2000-01-01"))
+        )
+    with right:
+        # Avatar (identicon) based on persisted avatar params for stability
+        try:
+            import pydenticon
+            seed = (current.get("avatar_seed") or current.get("username") or selection or "user").strip()
+            fg = current.get("avatar_fg") or DEFAULT_AVATAR_PALETTES[0]
+            bg = current.get("avatar_bg") or DEFAULT_AVATAR_BACKGROUNDS[0]
+            grid = current.get("avatar_grid") or [5, 5]
+            size = current.get("avatar_size") or [160, 160]
+            generator = pydenticon.Generator(grid[0], grid[1], foreground=list(fg), background=bg)
+            png = generator.generate(seed, int(size[0]), int(size[1]), output_format="png")
+            st.image(png, use_container_width=False)
+        except Exception:
+            st.caption("Install 'pydenticon' to see avatars")
+
+    # Schedule & notes
+    wd_opts = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]
+    # Regular workdays
+    workdays = st.multiselect("Regular workdays", options=wd_opts, default=current.get("workdays", ["Mon","Tue","Wed","Thu","Fri"]))
+    # Home office days (cannot overlap with workdays)
+    ho_default = [d for d in current.get("home_office_days", []) if d in wd_opts and d not in (workdays or [])]
+    ho_options = [d for d in wd_opts if d not in (workdays or [])]
+    home_office_days = st.multiselect("Home office workdays", options=ho_options, default=ho_default, help="Days selected here are excluded from Regular workdays and vice versa.")
+
+    c_sleep, c_work, c_break = st.columns(3)
+    # Column 1: wakeup then sleep
+    wakeup_time= c_sleep.time_input("Wake-Up Time", value=pd.to_datetime(current.get("wakeup_time", "07:00")).time())
+    sleep_start= c_sleep.time_input("Sleep Time", value=pd.to_datetime(current.get("sleep_start", "23:00")).time())
+    # Column 2: work start/end
+    work_start = c_work.time_input("Work start", value=pd.to_datetime(current.get("work_start", "09:00")).time())
+    work_end   = c_work.time_input("Work end",   value=pd.to_datetime(current.get("work_end", "17:00")).time())
+    # Column 3: work break start/end
+    lunch_start= c_break.time_input("Work break start (e.g., lunch)", value=pd.to_datetime(current.get("lunch_start", "12:00")).time())
+    lunch_end  = c_break.time_input("Work break end (e.g., lunch)",   value=pd.to_datetime(current.get("lunch_end", "13:00")).time())
+
+    hobbies = st.text_input("Hobbies / regular activities", value=current.get("hobbies", ""))
+    notes = st.text_area("Remarks (optional)", value=current.get("notes", ""))
+
+    # IP mapping with popover tools on the same row
+    known_ips = load_known_ips()
+    ip_to_user = ip_to_user_map(profiles_data)
+    ip_options = sorted(set(known_ips) | set(current.get("ip_addresses", [])))
+    row_ips, row_tools = st.columns([3,1])
+    with row_ips:
+        assigned_ips = st.multiselect("IP addresses for this user", options=ip_options, default=current.get("ip_addresses", []))
+        hide_mapped_elsewhere = st.checkbox("Show only IPs not yet mapped to other users", value=False)
+        if hide_mapped_elsewhere:
+            ip_options = [ip for ip in ip_options if (ip_to_user.get(ip) in (None, "") or ip_to_user.get(ip) == current.get("username"))]
+            # Re-render selection with filtered options while preserving current picks
+            assigned_ips = st.multiselect(" ", options=ip_options, default=[ip for ip in assigned_ips if ip in ip_options], label_visibility="collapsed")
+    with row_tools:
+        with st.popover("Edit IP Catalog"):
+            st.caption("Add, remove, or update the IP catalog.")
+            new_ip = st.text_input("Add IP", placeholder="e.g., 192.168.1.23", key="add_ip_catalog")
+            if st.button("Add to catalog", use_container_width=True, key="btn_add_ip_catalog"):
+                ip_re = re.compile(r"^(?:\d{1,3}\.){3}\d{1,3}$")
+                if new_ip and ip_re.match(new_ip.strip()):
+                    ips = set(load_known_ips()); ips.add(new_ip.strip())
+                    save_known_ips(ips)
+                    st.success(f"Added {new_ip.strip()}.")
+                    st.rerun()
+                else:
+                    st.warning("Enter a valid IPv4 address.")
+
+            del_sel = st.multiselect("Delete IPs", options=sorted(known_ips), help="Select IPs to remove from catalog.")
+            if st.button("Delete selected", type="secondary", use_container_width=True, key="btn_del_ips") and del_sel:
+                ips = set(load_known_ips())
+                for x in del_sel:
+                    ips.discard(x)
+                save_known_ips(ips)
+                st.success(f"Removed {len(del_sel)} IP(s).")
+                st.rerun()
+
+            if st.button("Update from Parquet", help="Scan Parquet (plus feature_cache fallback)"):
+                with st.status("Updating IP catalog...", expanded=False) as stat:
+                    scanned = scan_parquet_for_ips(status=stat)
+                    if not scanned:
+                        stat.write("No IPs found in Parquet. Scanning feature_cache fallback...")
+                        scanned = scan_feature_cache_for_ips(status=stat)
+                    if scanned:
+                        merged = set(load_known_ips()) | scanned
+                        save_known_ips(merged)
+                        stat.update(label=f"Catalog updated: now {len(merged)} IPs.", state="complete")
+                        st.success("IP catalog updated.")
+                        st.rerun()
+                    else:
+                        has_ip_cols = any_parquet_has_ip_columns(status=stat)
+                        stat.update(label="No IPs found to add.", state="complete")
+                        if not has_ip_cols:
+                            st.warning("Your current Parquet partitions don't include 'Source IP'/'Destination IP' columns. Re-partition PCAPs with the current loader to include IPs.")
+                        else:
+                            st.info("No IPs found to add. Ensure processed_parquet has partitions and contains IP columns.")
+
+    # Save/Delete profile buttons
+    b1, b2 = st.columns(2)
+    with b1:
+        if st.button("Save profile", use_container_width=True):
+            # Basic validations
+            def _tmin(t):
+                return int(pd.to_datetime(t.strftime('%H:%M')).hour)*60 + int(pd.to_datetime(t.strftime('%H:%M')).minute)
+            ok = True
+            msgs = []
+            # ensure disjoint days
+            overlap = sorted(set(workdays or []).intersection(set(home_office_days or [])))
+            if overlap:
+                ok = False; msgs.append(f"These days are selected in both 'Regular' and 'Home office': {', '.join(overlap)}.")
+            # time consistency
+            if _tmin(work_end) <= _tmin(work_start):
+                ok = False; msgs.append("Work end must be after work start.")
+            if _tmin(lunch_end) <= _tmin(lunch_start):
+                ok = False; msgs.append("Work break end must be after work break start.")
+            # sleep interval and break overlap
+            ws = _tmin(sleep_start); wu = _tmin(wakeup_time)
+            def in_sleep(m):
+                return (ws <= m < wu) if ws < wu else (m >= ws or m < wu)
+            if in_sleep(_tmin(lunch_start)) or in_sleep(_tmin(lunch_end)):
+                ok = False; msgs.append("Work break must not be during sleep time.")
+            if in_sleep(_tmin(work_start)) or in_sleep(_tmin(work_end)):
+                msgs.append("Note: Work hours overlap with sleep time; please check times.")
+
+            if not username.strip():
+                st.warning("Please provide a username before saving.")
+            elif not ok:
+                for m in msgs:
+                    st.warning(m)
+            else:
+                # prevent duplicates on create
+                if is_new and any(p.get("username") == username.strip() for p in profs):
+                    st.error("A profile with this username already exists.")
+                else:
+                    if is_new:
+                        # Create avatar params deterministically and persist
+                        ap = _compute_avatar_params(username.strip())
+                        new_prof = {
+                            "id": username.strip(),  # id == username
+                            "username": username.strip(),
+                            "birthdate": pd.to_datetime(birthdate).date().isoformat() if birthdate else None,
+                            "workdays": sorted(set(workdays) - set(home_office_days)),
+                            "home_office_days": sorted(set(home_office_days) - set(workdays)),
+                            "work_start": str(work_start)[:5],
+                            "work_end": str(work_end)[:5],
+                            "lunch_start": str(lunch_start)[:5],
+                            "lunch_end": str(lunch_end)[:5],
+                            "sleep_start": str(sleep_start)[:5],
+                            "wakeup_time": str(wakeup_time)[:5],
+                            "hobbies": hobbies,
+                            "notes": notes,
+                            "ip_addresses": sorted(set(assigned_ips)),
+                            "avatar_seed": ap["avatar_seed"],
+                            "avatar_fg": ap["avatar_fg"],
+                            "avatar_bg": ap["avatar_bg"],
+                            "avatar_grid": ap["avatar_grid"],
+                            "avatar_size": ap["avatar_size"],
+                        }
+                        profs.append(new_prof)
+                    else:
+                        # update by username
+                        for p in profs:
+                            if p.get("username") == selection:
+                                # Keep existing avatar params if present; otherwise compute once
+                                ap = {
+                                    "avatar_seed": p.get("avatar_seed") or (p.get("username") or username.strip()),
+                                    "avatar_fg": p.get("avatar_fg"),
+                                    "avatar_bg": p.get("avatar_bg"),
+                                    "avatar_grid": p.get("avatar_grid"),
+                                    "avatar_size": p.get("avatar_size"),
+                                }
+                                if not all([ap.get("avatar_fg"), ap.get("avatar_bg"), ap.get("avatar_grid"), ap.get("avatar_size")]):
+                                    ap = _compute_avatar_params(ap["avatar_seed"])
+                                p.update({
+                                    "id": username.strip(),  # ensure id == username when changed
+                                    "username": username.strip(),
+                                    "birthdate": pd.to_datetime(birthdate).date().isoformat() if birthdate else None,
+                                    "workdays": sorted(set(workdays) - set(home_office_days)),
+                                    "home_office_days": sorted(set(home_office_days) - set(workdays)),
+                                    "work_start": str(work_start)[:5],
+                                    "work_end": str(work_end)[:5],
+                                    "lunch_start": str(lunch_start)[:5],
+                                    "lunch_end": str(lunch_end)[:5],
+                                    "sleep_start": str(sleep_start)[:5],
+                                    "wakeup_time": str(wakeup_time)[:5],
+                                    "hobbies": hobbies,
+                                    "notes": notes,
+                                    "ip_addresses": sorted(set(assigned_ips)),
+                                    "avatar_seed": ap["avatar_seed"],
+                                    "avatar_fg": ap["avatar_fg"],
+                                    "avatar_bg": ap["avatar_bg"],
+                                    "avatar_grid": ap["avatar_grid"],
+                                    "avatar_size": ap["avatar_size"],
+                                })
+                                break
+                    save_profiles(profiles_data)
+                    st.success("Profile saved.")
+                    # extend catalog with assigned IPs
+                    if assigned_ips:
+                        merged_ips = set(load_known_ips()) | set(assigned_ips)
+                        save_known_ips(merged_ips)
+                    st.rerun()
+    with b2:
+        if (not is_new) and st.button("Delete profile", use_container_width=True, type="secondary"):
+            profiles_data["profiles"] = [p for p in profs if p.get("username") != selection]
+            save_profiles(profiles_data)
+            st.success("Profile deleted.")
+            st.rerun()
 
 def iter_packets_any(pcap_path: str):
     ext = os.path.splitext(pcap_path)[1].lower()
@@ -232,11 +663,19 @@ def _parquet_file_summary(fp: str) -> dict:
 def partition_pcap_to_parquet(pcap_path: str, base_name: str, status=None, commit_lag: int = COMMIT_LAG_WINDOWS) -> str:
     dataset_dir = os.path.join(PROCESSED_DIR, base_name); os.makedirs(dataset_dir, exist_ok=True)
     buffers, max_key_seen = {}, None
+    seen_ips: set[str] = set()
     total_rows = total_parts = 0; first_ts = last_ts = None
     if status is not None: status.write(f"Reading: {os.path.basename(pcap_path)}")
     for pkt in iter_packets_any(pcap_path):
         row = parse_packet_row(pkt); 
         if row is None: continue
+        # Track IPs for catalog
+        try:
+            si = row.get("Source IP"); di = row.get("Destination IP")
+            if si: seen_ips.add(str(si))
+            if di: seen_ips.add(str(di))
+        except Exception:
+            pass
         ts = row["Timestamp"]; first_ts = ts if first_ts is None else first_ts; last_ts = ts
         key = floor_to_interval(ts)
         if (max_key_seen is None) or (key > max_key_seen): max_key_seen = key
@@ -258,6 +697,13 @@ def partition_pcap_to_parquet(pcap_path: str, base_name: str, status=None, commi
             status.write(f"Timespan: {first_ts} → {last_ts}  (≈ {span})")
         status.write(f"Total partitions: {total_parts} | Total packets: {total_rows}")
         status.update(label=f"Done partitioning {os.path.basename(pcap_path)}", state="complete")
+    # Merge discovered IPs into global catalog
+    try:
+        if seen_ips:
+            merged = set(load_known_ips()) | seen_ips
+            save_known_ips(merged)
+    except Exception:
+        pass
     return dataset_dir
 
 def list_partition_files(base_name: str) -> list[str]:
@@ -297,7 +743,7 @@ def partition_counts_by_date(base_names: list[str]) -> dict[pd.Timestamp, int]:
     return dict(sorted(counts.items(), key=lambda kv: kv[0]))
 
 # -------------------- UI Intro --------------------
-st.title("PCAP Loader – ETL and Overview")
+st.header("PCAP Loader – ETL and Overview")
 
 with st.container(border=True):
     st.markdown("Upload PCAP/PCAPNG → partition into **5‑min Parquet** → select (Type/Group/Day or Week) → **Overview plots**.")
@@ -669,6 +1115,104 @@ with st.status("Loading and preparing data for the current selection…", expand
                 .sort_values("Packets", ascending=False))
 
     load_status.update(label="Data loaded & enriched.", state="complete")
+
+# -------------------- New IP detection (vs catalog) --------------------
+known_ips_for_loader = load_known_ips()
+try:
+    ips_in_selection = set()
+    if "Source IP" in df_all.columns:
+        ips_in_selection |= set(df_all["Source IP"].dropna().astype(str).unique().tolist())
+    if "Destination IP" in df_all.columns:
+        ips_in_selection |= set(df_all["Destination IP"].dropna().astype(str).unique().tolist())
+    new_ips = sorted(ips_in_selection - set(known_ips_for_loader))
+except Exception:
+    new_ips = []
+
+if new_ips:
+    st.info(f"Detected {len(new_ips)} new IP address(es) in your selection that are not in the catalog. You can allocate them to a user profile above.")
+    with st.expander("Show new IPs"):
+        st.write(", ".join(new_ips[:100]) + (" ..." if len(new_ips) > 100 else ""))
+    if st.button(f"Add {len(new_ips)} new IP(s) to catalog", key=f"{key_prefix}_add_new_ips"):
+        merged = set(known_ips_for_loader) | set(new_ips)
+        save_known_ips(merged)
+        st.success("New IPs added to catalog.")
+        st.rerun()
+
+# ===================== RAW DATA + IP FILTERS =====================
+with st.container(border=True):
+    st.subheader("Raw Data Preview & Filters")
+    st.caption("Preview shows rows from the current selection (chosen datasets + day/week). Use the IP filter and mapping below.")
+
+    # Unique IPs and counts for the selection
+    src_counts = df_all.get("Source IP", pd.Series(dtype=str)).value_counts(dropna=True)
+    dst_counts = df_all.get("Destination IP", pd.Series(dtype=str)).value_counts(dropna=True)
+    ip_counts = (src_counts.add(dst_counts, fill_value=0)).astype(int)
+    unique_ips = sorted(ip_counts.index.tolist())
+
+    def _ip_label(ip: str) -> str:
+        try:
+            cnt = int(ip_counts.get(ip, 0))
+        except Exception:
+            cnt = 0
+        return f"{ip} ({cnt})" if cnt else ip
+
+    # Precompute mapping to user for annotation
+    _profiles = load_profiles()
+    _ip_to_user = ip_to_user_map(_profiles)
+
+    # Filter by IPs present either as source or destination
+    sel_ips = st.multiselect(
+        "Filter by IP address (source or destination)",
+        options=unique_ips,
+        format_func=_ip_label,
+        key=f"{key_prefix}_ip_filter",
+        help="Start typing to search. Rows containing any selected IP in Source or Destination will be shown."
+    )
+
+    if sel_ips:
+        m = df_all["Source IP"].isin(sel_ips) | df_all["Destination IP"].isin(sel_ips)
+        df_preview = df_all[m].copy()
+    else:
+        df_preview = df_all.copy()
+
+    # Annotate user mapping if available
+    if not df_preview.empty:
+        if "Source IP" in df_preview.columns:
+            df_preview["SourceUser"] = df_preview["Source IP"].map(_ip_to_user)
+        if "Destination IP" in df_preview.columns:
+            df_preview["DestinationUser"] = df_preview["Destination IP"].map(_ip_to_user)
+        try:
+            df_preview["User"] = np.where(
+                (df_preview.get("SourceUser").notna()) & (df_preview.get("DestinationUser").notna()) & (df_preview.get("SourceUser") != df_preview.get("DestinationUser")),
+                df_preview.get("SourceUser").fillna("").astype(str) + "/" + df_preview.get("DestinationUser").fillna("").astype(str),
+                df_preview.get("SourceUser").fillna(df_preview.get("DestinationUser")).fillna("")
+            )
+        except Exception:
+            df_preview["User"] = df_preview.get("SourceUser").fillna(df_preview.get("DestinationUser")).fillna("")
+
+    show_cols_pref = [
+        "Timestamp", "Dataset", "User", "Protocol",
+        "Source IP", "Destination IP", "Source Port", "Destination Port",
+        "ResolvedHost", "SLD", "Length", "IsDNS", "DNS_QNAME", "DNS_ANS_NAME"
+    ]
+    show_cols = [c for c in show_cols_pref if c in df_preview.columns]
+    if show_cols:
+        df_show = df_preview[show_cols].sort_values("Timestamp").reset_index(drop=True)
+    else:
+        df_show = df_preview.copy()
+
+    colA, colB = st.columns([3,1])
+    with colB:
+        nrows = st.selectbox("Rows to display", options=[200, 500, 1000, 5000], index=2)
+    with colA:
+        st.dataframe(df_show.head(int(nrows)), use_container_width=True, hide_index=True)
+
+    # Download filtered rows as CSV
+    try:
+        csv_bytes = df_show.to_csv(index=False).encode("utf-8")
+        st.download_button("Download filtered CSV", data=csv_bytes, file_name="pcap_selection_filtered.csv", mime="text/csv")
+    except Exception:
+        pass
 
 # ===================== OVERVIEW SECTION =====================
 if analysis_scope == "Days":

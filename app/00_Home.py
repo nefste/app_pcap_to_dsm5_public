@@ -9,6 +9,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 from pathlib import Path
+from utils.acronyms import render_acronyms_helper_in_sidebar
 
 # ------------------------------- Page config -------------------------------
 st.set_page_config(
@@ -51,6 +52,9 @@ if "logged_in" not in st.session_state or not st.session_state.logged_in:
     login()
     st.stop()
 
+
+# Sidebar: helper dialog just below the page selector
+render_acronyms_helper_in_sidebar()
 
 
 # ------------------------------- Header ------------------------------------
@@ -168,13 +172,13 @@ with st.container(border=True):
                 st.page_link("pages/02_Network_Metrics.py", label="Go to page")
 
     with nav3:
-        st.markdown("**PCAP Loader**")
-        st.caption("Upload PCAP files and build processed partitions.")
-        if st.button("Open PCAP Loader", use_container_width=True):
+        st.markdown("**User and Network Setting**")
+        st.caption("Define User Profiles & upload PCAP files.")
+        if st.button("Open User and Network Settings", use_container_width=True):
             try:
-                st.switch_page("pages/03_PCAP_Loader.py")
+                st.switch_page("pages/03_User_and_Network_Settings.py")
             except Exception:
-                st.page_link("pages/03_PCAP_Loader.py", label="Go to page")
+                st.page_link("pages/03_User_and_Network_Settings.py", label="Go to page")
 
 # with st.container(border=True):
 #     st.subheader("How it works (at a glance)")

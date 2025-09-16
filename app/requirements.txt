@@ -7,3 +7,4 @@ plotly
 tldextract
 publicsuffixlist
 openpyxl
+pydenticon

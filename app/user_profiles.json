@@ -1,0 +1,90 @@
+{
+  "profiles": [
+    {
+      "id": "Stephan Nef",
+      "username": "Stephan Nef",
+      "birthdate": "1995-07-15",
+      "workdays": [
+        "Fri",
+        "Mon",
+        "Thu",
+        "Tue",
+        "Wed"
+      ],
+      "work_start": "08:30",
+      "work_end": "18:00",
+      "lunch_start": "12:00",
+      "lunch_end": "13:00",
+      "sleep_start": "23:00",
+      "wakeup_time": "06:00",
+      "hobbies": "Triathlon, Cooking",
+      "notes": "I feel great",
+      "ip_addresses": [
+        "1.193.182.148",
+        "1.198.223.204"
+      ],
+      "home_office_days": [],
+      "avatar_seed": "Stephan Nef",
+      "avatar_fg": [
+        "#9333ea",
+        "#2563eb",
+        "#16a34a",
+        "#ca8a04",
+        "#dc2626"
+      ],
+      "avatar_bg": "#fef3c7",
+      "avatar_grid": [
+        5,
+        5
+      ],
+      "avatar_size": [
+        160,
+        160
+      ]
+    },
+    {
+      "id": "Max Muster",
+      "username": "Max Muster",
+      "birthdate": "2002-11-07",
+      "workdays": [
+        "Fri",
+        "Sat",
+        "Thu",
+        "Tue",
+        "Wed"
+      ],
+      "home_office_days": [
+        "Mon"
+      ],
+      "work_start": "08:45",
+      "work_end": "18:15",
+      "lunch_start": "12:00",
+      "lunch_end": "13:00",
+      "sleep_start": "23:00",
+      "wakeup_time": "07:00",
+      "hobbies": "gaming",
+      "notes": "hello world",
+      "ip_addresses": [
+        "109.191.52.142",
+        "109.70.217.119"
+      ],
+      "avatar_seed": "Max Muster",
+      "avatar_fg": [
+        "#3b82f6",
+        "#22c55e",
+        "#f59e0b",
+        "#ef4444",
+        "#8b5cf6"
+      ],
+      "avatar_bg": "#eef2ff",
+      "avatar_grid": [
+        5,
+        5
+      ],
+      "avatar_size": [
+        160,
+        160
+      ]
+    }
+  ]
+}

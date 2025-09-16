@@ -16,6 +16,7 @@ import plotly.graph_objects as go
 import streamlit as st
 import pyarrow as pa
 import pyarrow.parquet as pq
+from utils.acronyms import render_acronyms_helper_in_sidebar
 
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
@@ -109,6 +110,9 @@ if "logged_in" not in st.session_state or not st.session_state.logged_in:
     login()
     st.stop()
 
+
+# Sidebar: helper dialog just below the page selector
+render_acronyms_helper_in_sidebar()
 
 col1, col2 = st.columns([7, 2])
 with col1:

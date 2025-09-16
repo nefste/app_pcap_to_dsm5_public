@@ -10,6 +10,7 @@ from typing import Dict, Any, List, Tuple
 import numpy as np
 import pandas as pd
 import streamlit as st
+from utils.acronyms import render_acronyms_helper_in_sidebar
 
 from metrics.base_features import compute_daily_base_record
 from metrics.common import enrich_with_hostnames
@@ -74,6 +75,9 @@ if "logged_in" not in st.session_state or not st.session_state.logged_in:
     login()
     st.stop()
 
+
+# Sidebar: helper dialog just below the page selector
+render_acronyms_helper_in_sidebar()
 
 col1, col2 = st.columns([7, 2])
 with col1:
