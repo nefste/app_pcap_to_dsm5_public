@@ -4,7 +4,6 @@ gatherUsageStats = false
 [theme]
 base="light"
 primaryColor="#107113"
-borderColor="#107113"
 
 [server]
 maxUploadSize=1028
