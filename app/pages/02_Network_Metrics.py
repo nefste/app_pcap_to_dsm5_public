@@ -200,28 +200,46 @@ def _apply_tri_background(fig, lo, mid, hi, invert, y_min, y_max):
         mid_draw = float(np.clip(mid_draw, y_min, y_max))
         hi_draw = float(np.clip(hi_draw, y_min, y_max))
     good = "rgba(34,197,94,0.15)"
-    bad = "rgba(239,68,68,0.15)"
-    span1_low = min(lo_draw, mid_draw)
-    span1_high = max(lo_draw, mid_draw)
-    span2_low = min(mid_draw, hi_draw)
-    span2_high = max(mid_draw, hi_draw)
-    if span1_low != span1_high:
+    bad = "rgba(239,68,68,0.12)"
+    accent_blue = "rgba(59,130,246,0.12)"
+    span_lo = sorted((lo_draw, mid_draw))
+    span_hi = sorted((mid_draw, hi_draw))
+    if span_lo[0] != span_lo[1]:
         fig.add_hrect(
-            y0=span1_low,
-            y1=span1_high,
+            y0=span_lo[0],
+            y1=span_lo[1],
             line_width=0,
             fillcolor=bad if invert else good,
             layer="below",
         )
-    if span2_low != span2_high:
+    if span_hi[0] != span_hi[1]:
         fig.add_hrect(
-            y0=span2_low,
-            y1=span2_high,
+            y0=span_hi[0],
+            y1=span_hi[1],
             line_width=0,
             fillcolor=good if invert else bad,
             layer="below",
         )
+    if invert:
+        if np.isfinite(y_max) and hi_draw < y_max:
+            fig.add_hrect(
+                y0=hi_draw,
+                y1=y_max,
+                line_width=0,
+                fillcolor=accent_blue,
+                layer="below",
+            )
+    else:
+        if np.isfinite(y_min) and lo_draw > y_min:
+            fig.add_hrect(
+                y0=y_min,
+                y1=lo_draw,
+                line_width=0,
+                fillcolor=accent_blue,
+                layer="below",
+            )
     fig.add_hline(y=mid_draw, line_dash="dot", line_color="gray")
+
 
 
 def _normalize_fasl_cfg(cfg: dict | None) -> dict:
@@ -1478,13 +1496,13 @@ def _show_metric_dialog():
             mid_input = col_mid.number_input("mid", value=float(mid_current), step=0.1, key=f"tri_mid_{key_hash}")
             hi_input = col_hi.number_input("hi", value=float(hi_current), step=0.1, key=f"tri_hi_{key_hash}")
             invert_input = st.checkbox("invert", value=bool(mf.get("invert", False)), key=f"tri_invert_{key_hash}")
-            invalid_order = not (lo_input < mid_input < hi_input)
+            invalid_order = not (lo_input <= mid_input <= hi_input)
             if invalid_order:
-                st.warning("Ensure lo < mid < hi for a triangular membership.")
+                st.warning("Ensure lo <= mid <= hi for a triangular membership.")
             apply_col, reset_col = st.columns([1, 1])
             if apply_col.button("Apply membership", key=f"tri_apply_{key_hash}"):
                 if invalid_order:
-                    st.warning("Membership not updated: require lo < mid < hi.")
+                    st.warning("Membership not updated: require lo <= mid <= hi.")
                 else:
                     spec = _ensure_fasl_metric_entry(criterion, dist_col)
                     mf_spec = spec.setdefault("mf", {})

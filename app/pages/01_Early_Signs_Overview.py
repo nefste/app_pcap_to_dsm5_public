@@ -1268,6 +1268,67 @@ LABEL_MAP = {
 
 
 
+
+
+def _add_tri_background(fig, lo, mid, hi, invert, y_min, y_max):
+    import math
+    vals = (lo, mid, hi)
+    if all((not np.isfinite(v)) or math.isclose(float(v), 0.0, abs_tol=1e-9) for v in vals):
+        return None
+    if y_min is None or not np.isfinite(y_min):
+        y_min = float('-inf')
+    if y_max is None or not np.isfinite(y_max):
+        y_max = float('inf')
+    if not np.isfinite(mid):
+        return None
+    lo_draw = float(lo) if np.isfinite(lo) else y_min
+    hi_draw = float(hi) if np.isfinite(hi) else y_max
+    mid_draw = float(mid)
+    if np.isfinite(y_min) and np.isfinite(y_max) and y_max > y_min:
+        lo_draw = float(np.clip(lo_draw, y_min, y_max))
+        mid_draw = float(np.clip(mid_draw, y_min, y_max))
+        hi_draw = float(np.clip(hi_draw, y_min, y_max))
+    good = "rgba(34,197,94,0.15)"
+    bad = "rgba(239,68,68,0.12)"
+    accent_blue = "rgba(59,130,246,0.12)"
+    span_lo = sorted((lo_draw, mid_draw))
+    span_hi = sorted((mid_draw, hi_draw))
+    if span_lo[0] != span_lo[1]:
+        fig.add_hrect(
+            y0=span_lo[0],
+            y1=span_lo[1],
+            line_width=0,
+            fillcolor=bad if invert else good,
+            layer="below",
+        )
+    if span_hi[0] != span_hi[1]:
+        fig.add_hrect(
+            y0=span_hi[0],
+            y1=span_hi[1],
+            line_width=0,
+            fillcolor=good if invert else bad,
+            layer="below",
+        )
+    if invert:
+        if np.isfinite(y_max) and hi_draw < y_max:
+            fig.add_hrect(
+                y0=hi_draw,
+                y1=y_max,
+                line_width=0,
+                fillcolor=accent_blue,
+                layer="below",
+            )
+    else:
+        if np.isfinite(y_min) and lo_draw > y_min:
+            fig.add_hrect(
+                y0=y_min,
+                y1=lo_draw,
+                line_width=0,
+                fillcolor=accent_blue,
+                layer="below",
+            )
+    return mid_draw
+
 def _boxplot_with_ranges(
     df: pd.DataFrame, col: str, lo: float, mid: float, hi: float, invert: bool = False
 ):
@@ -1282,34 +1343,16 @@ def _boxplot_with_ranges(
     fig.update_xaxes(visible=False)
     axis_label = LABEL_MAP.get(col, col)
     fig.update_yaxes(title=axis_label)
-    # Clip infinite bounds to data range for visualization
     ymin = float(series.min())
     ymax = float(series.max())
-    lo_draw = float(lo) if np.isfinite(lo) else ymin
-    hi_draw = float(hi) if np.isfinite(hi) else ymax
     try:
-        good = "rgba(34,197,94,0.10)"
-        bad = "rgba(239,68,68,0.10)"
-        if lo_draw <= mid:
-            fig.add_hrect(
-                y0=lo_draw,
-                y1=mid,
-                line_width=0,
-                fillcolor=bad if invert else good,
-                layer="below",
-            )
-        if mid <= hi_draw:
-            fig.add_hrect(
-                y0=mid,
-                y1=hi_draw,
-                line_width=0,
-                fillcolor=good if invert else bad,
-                layer="below",
-            )
-        fig.add_hline(y=mid, line_dash="dot", line_color="gray")
+        mid_line = _add_tri_background(fig, lo, mid, hi, invert, ymin, ymax)
+        if mid_line is not None:
+            fig.add_hline(y=mid_line, line_dash="dot", line_color="gray")
     except Exception:
         pass
     st.plotly_chart(fig, use_container_width=True)
+
 
 
 def _boxplot_with_ranges_marks(
@@ -1333,16 +1376,12 @@ def _boxplot_with_ranges_marks(
     fig.update_xaxes(visible=False)
     axis_label = LABEL_MAP.get(col, col)
     fig.update_yaxes(title=axis_label)
-    ymin = float(series.min()); ymax = float(series.max())
-    lo_draw = float(lo) if np.isfinite(lo) else ymin
-    hi_draw = float(hi) if np.isfinite(hi) else ymax
+    ymin = float(series.min())
+    ymax = float(series.max())
     try:
-        good = "rgba(34,197,94,0.10)"; bad = "rgba(239,68,68,0.10)"
-        if lo_draw <= mid:
-            fig.add_hrect(y0=lo_draw, y1=mid, line_width=0, fillcolor=bad if invert else good, layer="below")
-        if mid <= hi_draw:
-            fig.add_hrect(y0=mid, y1=hi_draw, line_width=0, fillcolor=good if invert else bad, layer="below")
-        fig.add_hline(y=mid, line_dash="dot", line_color="gray")
+        mid_line = _add_tri_background(fig, lo, mid, hi, invert, ymin, ymax)
+        if mid_line is not None:
+            fig.add_hline(y=mid_line, line_dash="dot", line_color="gray")
         if show_overlays:
             if boundaries is not None:
                 t12, t23 = float(boundaries[0]), float(boundaries[1])
@@ -1363,6 +1402,7 @@ def _boxplot_with_ranges_marks(
     except Exception:
         pass
     st.plotly_chart(fig, use_container_width=True)
+
 
 
 def _boxplot_membership(
@@ -1772,8 +1812,8 @@ for idx, (crit, label) in enumerate(CRIT_TABS):
                     )
                     mf["hi"], mf["mid"], mf["lo"] = float(hi_val), float(mid_val), float(lo_val)
 
-                    if not (lo_val < mid_val < hi_val):
-                        st.warning("Ensure lo < mid < hi.")
+                    if not (lo_val <= mid_val <= hi_val):
+                        st.warning("Ensure lo <= mid <= hi.")
                 with c3:
                     try:
                         tab_raw, tab_norm = st.tabs(["Raw", "Normalised"])
