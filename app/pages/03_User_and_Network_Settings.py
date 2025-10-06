@@ -22,7 +22,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from utils.acronyms import render_acronyms_helper_in_sidebar
 
-from metrics.common import enrich_with_hostnames, ensure_full_day_minutes
+from metrics.common import enrich_with_hostnames, ensure_full_day_minutes, build_dns_map
 
 # ------------------------------- Page/UI -------------------------------------
 st.set_page_config(
@@ -1406,3 +1406,121 @@ with ov_tabs[4]:
         st.plotly_chart(fig_groups, use_container_width=True, key=f"{key_prefix}_group_mix")
     else:
         st.info("No group information available.")
+
+
+# ===================== DNS ENRICHMENT OVERVIEW =====================
+with st.container(border=True):
+    st.subheader("DNS Enrichment Map")
+    st.caption("Mappings resolved from DNS answers in the current selection (build_dns_map).")
+
+    ip_to_host = build_dns_map(df_all)
+    if not ip_to_host:
+        st.info("No DNS enrichment available for this selection.")
+    else:
+        sorted_items = sorted(
+            ip_to_host.items(),
+            key=lambda item: (str(item[1]).lower() if isinstance(item[1], str) else "", item[0]),
+        )
+        dns_df = pd.DataFrame([{"IP": ip, "Hostname": host} for ip, host in sorted_items])
+        dns_df["Hostname"] = dns_df["Hostname"].fillna("").astype(str)
+
+        resolved_ips = set(ip_to_host.keys())
+
+        if "Destination IP" in df_all.columns:
+            dest_subset = df_all[df_all["Destination IP"].isin(resolved_ips)].copy()
+            if not dest_subset.empty:
+                def _first_text(series):
+                    for value in series:
+                        if isinstance(value, str) and value.strip():
+                            return value.strip()
+                    return None
+
+                def _format_dataset(series):
+                    values = sorted({str(v).strip() for v in series if pd.notna(v) and str(v).strip()})
+                    return ", ".join(values)
+
+                agg = (
+                    dest_subset.groupby("Destination IP")
+                    .agg(
+                        Packets=("Timestamp", "count"),
+                        FirstSeen=("Timestamp", "min"),
+                        LastSeen=("Timestamp", "max"),
+                        HostFromData=("ResolvedHost", _first_text),
+                        SLD=("SLD", _first_text),
+                        Datasets=("Dataset", _format_dataset),
+                    )
+                    .reset_index()
+                    .rename(columns={"Destination IP": "IP"})
+                )
+
+                dns_df = dns_df.merge(agg, how="left", on="IP")
+                if "HostFromData" in dns_df.columns:
+                    dns_df["Hostname"] = dns_df["Hostname"].mask(
+                        ~dns_df["Hostname"].str.strip().astype(bool),
+                        dns_df["HostFromData"].fillna(""),
+                    )
+
+        dns_df = dns_df.drop(columns=["HostFromData"], errors="ignore")
+
+        if "Packets" in dns_df.columns:
+            dns_df["Packets"] = dns_df["Packets"].fillna(0).astype(int)
+
+        for source_col, target_label in (("FirstSeen", "First seen"), ("LastSeen", "Last seen")):
+            if source_col in dns_df.columns:
+                dns_df[source_col] = pd.to_datetime(dns_df[source_col])
+                dns_df[target_label] = dns_df[source_col].dt.strftime("%Y-%m-%d %H:%M:%S")
+                dns_df = dns_df.drop(columns=[source_col])
+
+        if "SLD" in dns_df.columns:
+            dns_df["SLD"] = dns_df["SLD"].fillna("")
+
+        if "Datasets" in dns_df.columns:
+            dns_df["Datasets"] = dns_df["Datasets"].fillna("")
+
+        search_query = st.text_input(
+            "Search DNS mappings",
+            key=f"{key_prefix}_dns_search",
+            placeholder="Filter by IP, hostname, domain, or dataset",
+        )
+
+        filtered_df = dns_df.copy()
+        if search_query:
+            query = search_query.strip()
+            if query:
+                mask = (
+                    filtered_df["IP"].str.contains(query, case=False, na=False, regex=False)
+                    | filtered_df["Hostname"].str.contains(query, case=False, na=False, regex=False)
+                )
+                if "SLD" in filtered_df.columns:
+                    mask |= filtered_df["SLD"].str.contains(query, case=False, na=False, regex=False)
+                if "Datasets" in filtered_df.columns:
+                    mask |= filtered_df["Datasets"].str.contains(query, case=False, na=False, regex=False)
+                filtered_df = filtered_df[mask]
+
+        display_columns = [col for col in ["IP", "Hostname", "SLD", "Packets", "First seen", "Last seen", "Datasets"] if col in filtered_df.columns]
+        if display_columns:
+            filtered_df = filtered_df.loc[:, display_columns]
+
+        col_config = {}
+        if "IP" in filtered_df.columns:
+            col_config["IP"] = st.column_config.TextColumn("IP", width="small")
+        if "Hostname" in filtered_df.columns:
+            col_config["Hostname"] = st.column_config.TextColumn("Hostname", width="large")
+        if "SLD" in filtered_df.columns:
+            col_config["SLD"] = st.column_config.TextColumn("SLD", width="small")
+        if "Packets" in filtered_df.columns:
+            col_config["Packets"] = st.column_config.NumberColumn("Packets", format="%d")
+        if "First seen" in filtered_df.columns:
+            col_config["First seen"] = st.column_config.TextColumn("First seen", width="medium")
+        if "Last seen" in filtered_df.columns:
+            col_config["Last seen"] = st.column_config.TextColumn("Last seen", width="medium")
+        if "Datasets" in filtered_df.columns:
+            col_config["Datasets"] = st.column_config.TextColumn("Datasets", width="medium")
+
+        st.caption(f"{len(filtered_df)} mapping(s)")
+        st.dataframe(
+            filtered_df,
+            use_container_width=True,
+            hide_index=True,
+            column_config=col_config or None,
+        )

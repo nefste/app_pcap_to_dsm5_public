@@ -6,6 +6,8 @@ import os
 import sys
 import re
 import hashlib
+import json
+import copy
 from datetime import datetime, date
 from pathlib import Path
 
@@ -139,6 +141,209 @@ os.makedirs(PROCESSED_DIR, exist_ok=True)
 
 FEATURE_CACHE_DIR = APP_DIR / "feature_cache"
 os.makedirs(FEATURE_CACHE_DIR, exist_ok=True)
+
+FASL_CONFIG_PATH = APP_DIR / "fasl_config.json"
+DEFAULT_FASL_CONFIG_PATH = APP_DIR / "utils" / "fasl_config_20250912_0946.json"
+CRITERION_CODES = ["C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9"]
+
+
+
+def _safe_float_config(value) -> float | None:
+    try:
+        v = float(value)
+    except Exception:
+        return None
+    if np.isnan(v):
+        return None
+    return v
+
+
+def _get_fasl_membership(criterion: str | None, metric_key: str | None) -> tuple[float, float, float, bool]:
+    if not criterion or not metric_key:
+        return 0.0, 0.0, 0.0, False
+    try:
+        spec = _ensure_fasl_metric_entry(criterion, metric_key)
+    except Exception:
+        cfg = st.session_state.setdefault('fasl_cfg', {})
+        crit_bucket = cfg.get(criterion, {}) if isinstance(cfg, dict) else {}
+        spec = crit_bucket.get(metric_key, {}) if isinstance(crit_bucket, dict) else {}
+        mf = spec.get('mf') if isinstance(spec, dict) else {}
+        lo = _safe_float_config((mf or {}).get('lo')) or 0.0
+        mid = _safe_float_config((mf or {}).get('mid')) or 0.0
+        hi = _safe_float_config((mf or {}).get('hi')) or 0.0
+        invert = bool((mf or {}).get('invert', False))
+        return lo, mid, hi, invert
+    mf = spec.get('mf') if isinstance(spec, dict) else {}
+    lo = _safe_float_config((mf or {}).get('lo')) or 0.0
+    mid = _safe_float_config((mf or {}).get('mid')) or 0.0
+    hi = _safe_float_config((mf or {}).get('hi')) or 0.0
+    invert = bool((mf or {}).get('invert', False))
+    return lo, mid, hi, invert
+
+
+def _apply_tri_background(fig, lo, mid, hi, invert, y_min, y_max):
+    import math
+    vals = (lo, mid, hi)
+    if all((not np.isfinite(v)) or math.isclose(float(v), 0.0, abs_tol=1e-9) for v in vals):
+        return
+    if y_min is None or not np.isfinite(y_min):
+        y_min = float('-inf')
+    if y_max is None or not np.isfinite(y_max):
+        y_max = float('inf')
+    if not np.isfinite(mid):
+        return
+    lo_draw = float(lo) if np.isfinite(lo) else y_min
+    hi_draw = float(hi) if np.isfinite(hi) else y_max
+    mid_draw = float(mid)
+    if np.isfinite(y_min) and np.isfinite(y_max) and y_max > y_min:
+        lo_draw = float(np.clip(lo_draw, y_min, y_max))
+        mid_draw = float(np.clip(mid_draw, y_min, y_max))
+        hi_draw = float(np.clip(hi_draw, y_min, y_max))
+    good = "rgba(34,197,94,0.15)"
+    bad = "rgba(239,68,68,0.15)"
+    span1_low = min(lo_draw, mid_draw)
+    span1_high = max(lo_draw, mid_draw)
+    span2_low = min(mid_draw, hi_draw)
+    span2_high = max(mid_draw, hi_draw)
+    if span1_low != span1_high:
+        fig.add_hrect(
+            y0=span1_low,
+            y1=span1_high,
+            line_width=0,
+            fillcolor=bad if invert else good,
+            layer="below",
+        )
+    if span2_low != span2_high:
+        fig.add_hrect(
+            y0=span2_low,
+            y1=span2_high,
+            line_width=0,
+            fillcolor=good if invert else bad,
+            layer="below",
+        )
+    fig.add_hline(y=mid_draw, line_dash="dot", line_color="gray")
+
+
+def _normalize_fasl_cfg(cfg: dict | None) -> dict:
+    if not isinstance(cfg, dict):
+        return {}
+    normalized: dict[str, dict] = {}
+    general_keys = {"M", "N", "theta"}
+    for key, value in cfg.items():
+        if key in general_keys:
+            normalized[key] = value
+            continue
+        if key == "core_symptoms":
+            if isinstance(value, (list, tuple, set)):
+                normalized[key] = list(value)
+            else:
+                normalized[key] = []
+            continue
+        if isinstance(key, str) and len(key) == 2 and key.startswith("C") and key[1].isdigit():
+            bucket: dict[str, dict] = {}
+            if isinstance(value, dict):
+                for metric_key, spec in value.items():
+                    if not isinstance(spec, dict):
+                        continue
+                    spec_out: dict[str, object] = {}
+                    if "w" in spec:
+                        w_val = _safe_float_config(spec.get("w"))
+                        spec_out["w"] = w_val if w_val is not None else spec.get("w", 0.1)
+                    if "bom" in spec:
+                        spec_out["bom"] = spec.get("bom")
+                    mf_raw = spec.get("mf") if isinstance(spec.get("mf"), dict) else {}
+                    lo = _safe_float_config(mf_raw.get("lo"))
+                    mid = _safe_float_config(mf_raw.get("mid"))
+                    hi = _safe_float_config(mf_raw.get("hi"))
+                    spec_out["mf"] = {
+                        "type": (mf_raw.get("type") or "tri"),
+                        "lo": lo if lo is not None else mf_raw.get("lo", 0.0),
+                        "mid": mid if mid is not None else mf_raw.get("mid", 0.0),
+                        "hi": hi if hi is not None else mf_raw.get("hi", 0.0),
+                        "invert": bool(mf_raw.get("invert", False)),
+                    }
+                    bucket[str(metric_key)] = spec_out
+            normalized[key] = bucket
+            continue
+        normalized[key] = value
+    return normalized
+
+
+def _load_default_fasl_config() -> dict:
+    if DEFAULT_FASL_CONFIG_PATH.exists():
+        try:
+            data = json.loads(DEFAULT_FASL_CONFIG_PATH.read_text(encoding='utf-8'))
+            return _normalize_fasl_cfg(data)
+        except Exception:
+            return {}
+    return {}
+
+
+def _load_fasl_config_from_disk() -> tuple[dict | None, str | None]:
+    if not FASL_CONFIG_PATH.exists():
+        return None, None
+    try:
+        data = json.loads(FASL_CONFIG_PATH.read_text(encoding='utf-8'))
+        return _normalize_fasl_cfg(data), None
+    except Exception as exc:
+        return None, str(exc)
+
+
+def _ensure_fasl_config_state():
+    default_cfg = st.session_state.setdefault("__fasl_cfg_default__", copy.deepcopy(_load_default_fasl_config()))
+    fasl_state = st.session_state.get("fasl_cfg")
+    if not isinstance(fasl_state, dict):
+        cfg, err = _load_fasl_config_from_disk()
+        if err:
+            st.session_state["__fasl_cfg_load_error__"] = err
+        if cfg is None:
+            cfg = copy.deepcopy(default_cfg)
+            st.session_state["__fasl_cfg_source__"] = "defaults"
+        else:
+            st.session_state["__fasl_cfg_source__"] = "disk"
+        st.session_state["fasl_cfg"] = copy.deepcopy(cfg)
+    else:
+        st.session_state.setdefault("__fasl_cfg_source__", "session")
+
+
+def _ensure_fasl_metric_entry(criterion: str, metric_key: str) -> dict:
+    cfg = st.session_state.setdefault("fasl_cfg", {})
+    if not isinstance(cfg, dict):
+        cfg = {}
+        st.session_state["fasl_cfg"] = cfg
+    crit_bucket = cfg.setdefault(criterion, {})
+    if not isinstance(crit_bucket, dict):
+        crit_bucket = {}
+        cfg[criterion] = crit_bucket
+    spec = crit_bucket.setdefault(metric_key, {})
+    if not isinstance(spec, dict):
+        spec = {}
+        crit_bucket[metric_key] = spec
+    spec.setdefault("w", 0.1)
+    mf = spec.get("mf")
+    if not isinstance(mf, dict):
+        mf = {}
+        spec["mf"] = mf
+    mf.setdefault("type", "tri")
+    mf.setdefault("lo", 0.0)
+    mf.setdefault("mid", 0.0)
+    mf.setdefault("hi", 0.0)
+    mf.setdefault("invert", False)
+    return spec
+
+
+def _fasl_default_for(criterion: str, metric_key: str) -> dict | None:
+    defaults = st.session_state.get("__fasl_cfg_default__", {})
+    if not isinstance(defaults, dict):
+        return None
+    crit_defaults = defaults.get(criterion)
+    if not isinstance(crit_defaults, dict):
+        return None
+    value = crit_defaults.get(metric_key)
+    if not isinstance(value, dict):
+        return None
+    return copy.deepcopy(value)
+
 
 # ---------- Robust Parquet read (skips corrupted row groups) ----------
 def _safe_read_parquet(fp: str):
@@ -460,6 +665,8 @@ if not selected_base_names:
     )
     st.stop()
 
+_ensure_fasl_config_state()
+
 # =============================== Days / calendar ==============================
 
 def _render_calendar_heatmap(counts_by_date: dict[pd.Timestamp, int]):
@@ -764,11 +971,14 @@ def _show_metric_dialog():
     latex_numbers = payload.get("latex_numbers")
     explanation = payload.get("explanation_md")
     dist_col = payload.get("dist_col")
+    criterion = payload.get("criterion")
     base_cfg = payload.get("range_cfg") or {}
     current_value = payload.get("current_value")
     ts_df = payload.get("ts_df")
 
     effective_cfg = get_effective_range_cfg(label, dist_col, base_cfg)
+    tri_lo, tri_mid, tri_hi, tri_invert = _get_fasl_membership(criterion, dist_col)
+    tri_all_zero = all(abs(v) < 1e-9 for v in (tri_lo, tri_mid, tri_hi))
 
     st.markdown(f"### {label}")
 
@@ -861,15 +1071,8 @@ def _show_metric_dialog():
                             )
                         )
 
-                    if "ok" in effective_cfg:
-                        ok_thr = float(effective_cfg["ok"])
-                        higher_is_worse = bool(effective_cfg.get("higher_is_worse", True))
-                        if higher_is_worse:
-                            fig_w.add_hrect(y0=y_min, y1=ok_thr, line_width=0, fillcolor="rgba(34,197,94,0.15)", layer="below")
-                            fig_w.add_hrect(y0=ok_thr, y1=y_max, line_width=0, fillcolor="rgba(239,68,68,0.15)", layer="below")
-                        else:
-                            fig_w.add_hrect(y0=y_min, y1=ok_thr, line_width=0, fillcolor="rgba(239,68,68,0.15)", layer="below")
-                            fig_w.add_hrect(y0=ok_thr, y1=y_max, line_width=0, fillcolor="rgba(34,197,94,0.15)", layer="below")
+                    if not tri_all_zero:
+                        _apply_tri_background(fig_w, tri_lo, tri_mid, tri_hi, tri_invert, y_min, y_max)
 
                     try:
                         x_day = pd.to_datetime(pd.to_datetime(chosen_day).date())
@@ -909,15 +1112,8 @@ def _show_metric_dialog():
                         data=[go.Scatter(x=weekday_dates, y=agg.values, mode="lines+markers", name="Total")]
                     )
 
-                    if "ok" in effective_cfg:
-                        ok_thr = float(effective_cfg["ok"])
-                        higher_is_worse = bool(effective_cfg.get("higher_is_worse", True))
-                        if higher_is_worse:
-                            fig_t.add_hrect(y0=y_min, y1=ok_thr, line_width=0, fillcolor="rgba(34,197,94,0.15)", layer="below")
-                            fig_t.add_hrect(y0=ok_thr, y1=y_max, line_width=0, fillcolor="rgba(239,68,68,0.15)", layer="below")
-                        else:
-                            fig_t.add_hrect(y0=y_min, y1=ok_thr, line_width=0, fillcolor="rgba(239,68,68,0.15)", layer="below")
-                            fig_t.add_hrect(y0=ok_thr, y1=y_max, line_width=0, fillcolor="rgba(34,197,94,0.15)", layer="below")
+                    if not tri_all_zero:
+                        _apply_tri_background(fig_t, tri_lo, tri_mid, tri_hi, tri_invert, y_min, y_max)
 
                     try:
                         x_day = pd.to_datetime(pd.to_datetime(chosen_day).date())
@@ -962,15 +1158,8 @@ def _show_metric_dialog():
                         ]
                     )
 
-                    if "ok" in effective_cfg:
-                        ok_thr = float(effective_cfg["ok"])
-                        higher_is_worse = bool(effective_cfg.get("higher_is_worse", True))
-                        if higher_is_worse:
-                            fig_d.add_hrect(y0=y_min, y1=ok_thr, line_width=0, fillcolor="rgba(34,197,94,0.15)", layer="below")
-                            fig_d.add_hrect(y0=ok_thr, y1=y_max, line_width=0, fillcolor="rgba(239,68,68,0.15)", layer="below")
-                        else:
-                            fig_d.add_hrect(y0=y_min, y1=ok_thr, line_width=0, fillcolor="rgba(239,68,68,0.15)", layer="below")
-                            fig_d.add_hrect(y0=ok_thr, y1=y_max, line_width=0, fillcolor="rgba(34,197,94,0.15)", layer="below")
+                    if not tri_all_zero:
+                        _apply_tri_background(fig_d, tri_lo, tri_mid, tri_hi, tri_invert, y_min, y_max)
 
                     try:
                         x_day = pd.to_datetime(pd.to_datetime(chosen_day).date())
@@ -1005,19 +1194,8 @@ def _show_metric_dialog():
                         series = df_box[dist_col]
                         yb_min = float(series.min())
                         yb_max = float(series.max())
-                        if "ok" in effective_cfg:
-                            ok_thr = float(effective_cfg["ok"])
-                            higher_is_worse = bool(effective_cfg.get("higher_is_worse", True))
-                            if higher_is_worse:
-                                if yb_min < ok_thr:
-                                    fig_box.add_hrect(y0=yb_min, y1=ok_thr, line_width=0, fillcolor="rgba(34,197,94,0.15)", layer="below")
-                                if ok_thr < yb_max:
-                                    fig_box.add_hrect(y0=ok_thr, y1=yb_max, line_width=0, fillcolor="rgba(239,68,68,0.15)", layer="below")
-                            else:
-                                if yb_min < ok_thr:
-                                    fig_box.add_hrect(y0=yb_min, y1=ok_thr, line_width=0, fillcolor="rgba(239,68,68,0.15)", layer="below")
-                                if ok_thr < yb_max:
-                                    fig_box.add_hrect(y0=ok_thr, y1=yb_max, line_width=0, fillcolor="rgba(34,197,94,0.15)", layer="below")
+                        if not tri_all_zero:
+                            _apply_tri_background(fig_box, tri_lo, tri_mid, tri_hi, tri_invert, yb_min, yb_max)
 
                         if (current_value is not None) and isinstance(current_value, (int, float)) and np.isfinite(current_value):
                             try:
@@ -1278,29 +1456,71 @@ def _show_metric_dialog():
     if (current_value is None) or (isinstance(current_value, float) and (np.isnan(current_value) or not np.isfinite(current_value))):
         st.info("Not enough data or missing variables for today's value.")
 
-    st.markdown("---")
-    with st.popover("Adjust status ranges", use_container_width=True):
-        default_ok = float(effective_cfg.get("ok")) if "ok" in effective_cfg else 0.0
-        default_hiw = bool(effective_cfg.get("higher_is_worse", True))
-        new_ok = st.number_input("OK threshold", value=default_ok, help="Boundary between OK and Caution.")
-        new_hiw = st.checkbox("Higher values are worse", value=default_hiw)
-
-        c1, c2 = st.columns([1, 1])
-        with c1:
-            if st.button("Apply to this metric"):
-                key = f"{label}|{dist_col}"
-                overrides = st.session_state.get("__range_overrides__", {})
-                overrides[key] = {"ok": float(new_ok), "higher_is_worse": bool(new_hiw)}
-                st.session_state["__range_overrides__"] = overrides
-                st.rerun()
-        with c2:
-            if st.button("Reset to default"):
-                key = f"{label}|{dist_col}"
-                overrides = st.session_state.get("__range_overrides__", {})
-                if key in overrides:
-                    del overrides[key]
-                    st.session_state["__range_overrides__"] = overrides
-                st.rerun()
+    st.markdown("### Triangular membership (FASL config)")
+    with st.container(border=True):
+        if not criterion or not dist_col:
+            st.info("Triangular membership parameters are not available for this metric.")
+        else:
+            spec = _ensure_fasl_metric_entry(criterion, dist_col)
+            mf = spec.get("mf") if isinstance(spec.get("mf"), dict) else {}
+            lo_current = _safe_float_config(mf.get("lo"))
+            mid_current = _safe_float_config(mf.get("mid"))
+            hi_current = _safe_float_config(mf.get("hi"))
+            if lo_current is None:
+                lo_current = 0.0
+            if mid_current is None:
+                mid_current = 0.0
+            if hi_current is None:
+                hi_current = 0.0
+            key_hash = hashlib.md5(f"{criterion}|{dist_col}".encode()).hexdigest()[:8]
+            col_lo, col_mid, col_hi = st.columns(3)
+            lo_input = col_lo.number_input("lo", value=float(lo_current), step=0.1, key=f"tri_lo_{key_hash}")
+            mid_input = col_mid.number_input("mid", value=float(mid_current), step=0.1, key=f"tri_mid_{key_hash}")
+            hi_input = col_hi.number_input("hi", value=float(hi_current), step=0.1, key=f"tri_hi_{key_hash}")
+            invert_input = st.checkbox("invert", value=bool(mf.get("invert", False)), key=f"tri_invert_{key_hash}")
+            invalid_order = not (lo_input < mid_input < hi_input)
+            if invalid_order:
+                st.warning("Ensure lo < mid < hi for a triangular membership.")
+            apply_col, reset_col = st.columns([1, 1])
+            if apply_col.button("Apply membership", key=f"tri_apply_{key_hash}"):
+                if invalid_order:
+                    st.warning("Membership not updated: require lo < mid < hi.")
+                else:
+                    spec = _ensure_fasl_metric_entry(criterion, dist_col)
+                    mf_spec = spec.setdefault("mf", {})
+                    mf_spec["type"] = mf_spec.get("type", "tri") or "tri"
+                    mf_spec["lo"] = float(lo_input)
+                    mf_spec["mid"] = float(mid_input)
+                    mf_spec["hi"] = float(hi_input)
+                    mf_spec["invert"] = bool(invert_input)
+                    st.session_state["fasl_cfg"] = st.session_state.get("fasl_cfg", {})
+                    st.session_state["__fasl_cfg_dirty__"] = True
+                    try:
+                        st.toast("Triangular membership updated.")
+                    except Exception:
+                        st.success("Triangular membership updated.")
+                    st.rerun()
+            default_spec = _fasl_default_for(criterion, dist_col)
+            reset_disabled = default_spec is None
+            if reset_col.button("Reset membership", key=f"tri_reset_{key_hash}", disabled=reset_disabled):
+                if default_spec:
+                    spec = _ensure_fasl_metric_entry(criterion, dist_col)
+                    default_mf = default_spec.get("mf", {})
+                    mf_spec = spec.setdefault("mf", {})
+                    mf_spec["type"] = default_mf.get("type", "tri") or "tri"
+                    for name in ("lo", "mid", "hi"):
+                        val = _safe_float_config(default_mf.get(name))
+                        mf_spec[name] = val if val is not None else 0.0
+                    mf_spec["invert"] = bool(default_mf.get("invert", False))
+                    st.session_state["fasl_cfg"] = st.session_state.get("fasl_cfg", {})
+                    st.session_state["__fasl_cfg_dirty__"] = True
+                    try:
+                        st.toast("Membership reset to default.")
+                    except Exception:
+                        st.success("Membership reset to default.")
+                    st.rerun()
+            if default_spec is None:
+                st.caption("No default membership defined for this metric in the reference config.")
 
 def _summarize_status_counts(metrics: list[dict], selected_metric_labels: list[str]) -> dict:
     counts = {"OK": 0, "Caution": 0, "N/A": 0}
@@ -1345,11 +1565,13 @@ def _render_status_gauges(metrics: list[dict], selected_metric_labels: list[str]
         _render_gauge(st, counts.get("N/A", 0), max_value, "N/A", "#2563eb", key=f"{key_prefix}_g_na")
 
 def render_metric_grid(
+
     metric_items: list[dict],
     selected_statuses: set[str],
     all_days_df: pd.DataFrame,
     selected_metric_labels: list[str] | None = None,
     key_prefix: str = "",
+    criterion_code: str | None = None,
 ):
     """Render KPI cards 2 per row with boxplot, status, and a Details dialog."""
     filtered = []
@@ -1390,9 +1612,11 @@ def render_metric_grid(
                 current_value=m["value"],
                 range_cfg=m.get("range_cfg"),
                 key_prefix=f"{key_prefix}_m{i+j}",
+                criterion=criterion_code,
             )
 
 def render_kpi(
+
     col,
     label,
     value,
@@ -1408,6 +1632,7 @@ def render_kpi(
     current_value=None,
     range_cfg: dict | None = None,
     key_prefix: str = "",
+    criterion: str | None = None,
 ):
     with col:
         st.markdown(f"**{label}**")
@@ -1422,6 +1647,8 @@ def render_kpi(
 
         # Effective range config (with overrides applied)
         effective_cfg = get_effective_range_cfg(label, dist_col, range_cfg or {})
+        tri_lo, tri_mid, tri_hi, tri_invert = _get_fasl_membership(criterion, dist_col)
+        tri_all_zero = all(abs(v) < 1e-9 for v in (tri_lo, tri_mid, tri_hi))
         display_status = status_from_value(value, effective_cfg, original_status_tuple[0])
 
         with inner[0]:
@@ -1460,6 +1687,7 @@ def render_kpi(
                     "range_cfg": range_cfg,
                     "current_value": current_value,
                     "ts_df": ts_df,
+                    "criterion": criterion,
                 }
                 _show_metric_dialog()
 
@@ -1472,19 +1700,8 @@ def render_kpi(
                 y_min = float(series.min())
                 y_max = float(series.max())
 
-                if "ok" in effective_cfg:
-                    ok_thr = float(effective_cfg["ok"])
-                    higher_is_worse = bool(effective_cfg.get("higher_is_worse", True))
-                    if higher_is_worse:
-                        if y_min < ok_thr:
-                            fig_box.add_hrect(y0=y_min, y1=ok_thr, line_width=0, fillcolor="rgba(34,197,94,0.15)", layer="below")
-                        if ok_thr < y_max:
-                            fig_box.add_hrect(y0=ok_thr, y1=y_max, line_width=0, fillcolor="rgba(239,68,68,0.15)", layer="below")
-                    else:
-                        if y_min < ok_thr:
-                            fig_box.add_hrect(y0=y_min, y1=ok_thr, line_width=0, fillcolor="rgba(239,68,68,0.15)", layer="below")
-                        if ok_thr < y_max:
-                            fig_box.add_hrect(y0=ok_thr, y1=y_max, line_width=0, fillcolor="rgba(34,197,94,0.15)", layer="below")
+                if not tri_all_zero:
+                    _apply_tri_background(fig_box, tri_lo, tri_mid, tri_hi, tri_invert, y_min, y_max)
 
                 if (current_value is not None) and isinstance(current_value, (int, float)) and np.isfinite(current_value):
                     try:
@@ -1539,7 +1756,14 @@ def compute_and_render(tab_index: int, title: str, caption: str):
         _ = counts  # (left gauges out to reduce clutter, keep logic if you re-add)
 
         # Metric cards/grid
-        render_metric_grid(metrics, selected_statuses, ALL_DAILY, selected_metric_labels, key_prefix=key_prefix)
+        render_metric_grid(
+            metrics,
+            selected_statuses,
+            ALL_DAILY,
+            selected_metric_labels,
+            key_prefix=key_prefix,
+            criterion_code=CRITERION_CODES[tab_index],
+        )
 
 compute_and_render(0, "Criterion 1 — Sleep disturbance", "Insomnia or hypersomnia, nearly every day.")
 compute_and_render(1, "Criterion 2 — Loss of interest / anhedonia", "Markedly diminished interest or pleasure.")
@@ -1550,3 +1774,86 @@ compute_and_render(5, "Criterion 6 — Fatigue / low energy", "Fatigue or loss o
 compute_and_render(6, "Criterion 7 — Worthlessness / guilt", "Feelings of worthlessness or excessive/inappropriate guilt.")
 compute_and_render(7, "Criterion 8 — Difficulty concentrating / indecisiveness", "Diminished ability to think or concentrate; indecisiveness.")
 compute_and_render(8, "Criterion 9 — Suicidality", "Recurrent thoughts of death or suicidal ideation.")
+
+st.write("")
+with st.container(border=True):
+    st.subheader("FASL Configuration")
+    st.caption("Share and persist the triangular membership settings used by Early Signs.")
+
+    load_error = st.session_state.get("__fasl_cfg_load_error__")
+    if load_error:
+        st.warning(f"Could not load configuration from disk: {load_error}")
+        st.session_state.pop("__fasl_cfg_load_error__", None)
+
+    dirty = bool(st.session_state.get("__fasl_cfg_dirty__", False))
+    source = st.session_state.get("__fasl_cfg_source__", "session")
+    st.caption(f"Last source: {source}; default path: `{FASL_CONFIG_PATH}`")
+    if dirty:
+        st.caption("Unsaved membership edits pending save.")
+
+    cfg = st.session_state.get("fasl_cfg", {})
+    metric_count = sum(len(v) for k, v in cfg.items() if isinstance(v, dict) and k in CRITERION_CODES)
+    st.markdown(f"**Metrics configured:** {metric_count}")
+
+    config_json = json.dumps(cfg, indent=2, ensure_ascii=False)
+
+    dl_col, save_col, reload_col = st.columns(3)
+    with dl_col:
+        st.download_button(
+            "Download JSON",
+            data=config_json.encode("utf-8"),
+            file_name="fasl_config.json",
+            mime="application/json",
+        )
+    with save_col:
+        if st.button("Save as default", key="fasl_save_cfg_network"):
+            try:
+                FASL_CONFIG_PATH.write_text(config_json, encoding="utf-8")
+                st.session_state["__fasl_cfg_source__"] = "disk"
+                st.session_state["__fasl_cfg_dirty__"] = False
+                st.success(f"Saved to {FASL_CONFIG_PATH}")
+            except Exception as exc:
+                st.error(f"Failed to write configuration: {exc}")
+    with reload_col:
+        if st.button("Reload from disk", key="fasl_reload_cfg_network"):
+            cfg_disk, err = _load_fasl_config_from_disk()
+            if err:
+                st.error(f"Failed to load configuration: {err}")
+            elif cfg_disk is None:
+                st.info("No configuration file found on disk.")
+            else:
+                st.session_state["fasl_cfg"] = cfg_disk
+                st.session_state["__fasl_cfg_source__"] = "disk"
+                st.session_state["__fasl_cfg_dirty__"] = False
+                st.success("Reloaded configuration from disk.")
+                st.rerun()
+
+    upload_col, reset_col = st.columns(2)
+    with upload_col:
+        uploaded = st.file_uploader("Upload configuration (.json)", type="json", key="fasl_cfg_upload_network")
+        if uploaded is not None:
+            try:
+                data = json.loads(uploaded.read().decode("utf-8"))
+                cfg_upload = _normalize_fasl_cfg(data)
+                if not isinstance(cfg_upload, dict):
+                    raise ValueError("Uploaded JSON must be an object")
+                st.session_state["fasl_cfg"] = cfg_upload
+                st.session_state["__fasl_cfg_source__"] = "upload"
+                st.session_state["__fasl_cfg_dirty__"] = False
+                st.success("Configuration applied from upload. Rerunning...")
+                st.rerun()
+            except json.JSONDecodeError as exc:
+                st.error(f"Invalid JSON file: {exc}")
+            except Exception as exc:
+                st.error(f"Could not apply configuration: {exc}")
+    with reset_col:
+        if st.button("Reset to defaults", key="fasl_reset_defaults_network"):
+            default_cfg = copy.deepcopy(st.session_state.get("__fasl_cfg_default__") or _load_default_fasl_config())
+            if default_cfg:
+                st.session_state["fasl_cfg"] = default_cfg
+                st.session_state["__fasl_cfg_source__"] = "defaults"
+                st.session_state["__fasl_cfg_dirty__"] = False
+                st.success("Restored built-in default configuration.")
+                st.rerun()
+            else:
+                st.warning("No built-in default configuration available.")

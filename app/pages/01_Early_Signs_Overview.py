@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-import os, re, json, hashlib, copy
+import os, re, json, hashlib, copy, math
+import html
 from pathlib import Path
 from dataclasses import dataclass
 from typing import Dict, Any, List, Tuple
@@ -99,6 +100,7 @@ with col2:
 APP_DIR = Path(__file__).resolve().parents[1]
 PROCESSED_DIR = APP_DIR / "processed_parquet"
 FEATURE_CACHE_DIR = APP_DIR / "feature_cache"
+FASL_CONFIG_PATH = APP_DIR / "fasl_config.json"
 
 
 # ------------------------------ Data loading ----------------------------------
@@ -731,13 +733,25 @@ with cols_summary[0]:
         unsafe_allow_html=True,
     )
 with cols_summary[1]:
-    c2_ok = bool(present.get("C2", False))
-    bg = RED_BG if c2_ok else GREEN_BG
+    core_flags = {c: bool(present.get(c, False)) for c in core_criteria}
+    selected_names: List[str] = []
+    active_names: List[str] = []
+    for code in core_criteria:
+        label_full = CRIT_DISPLAY.get(code, code)
+        label_desc = label_full.split(" – ", 1)[1] if " – " in label_full else label_full
+        selected_names.append(label_desc)
+        if core_flags.get(code):
+            active_names.append(label_desc)
+    selected_text = ", ".join(selected_names) if selected_names else "None selected"
+    active_text = ", ".join(active_names) if active_names else "None currently"
+    bg = RED_BG if core_ok else GREEN_BG
     st.markdown(
         f"""
         <div style=\"background-color:{bg}; border-radius:8px; padding:10px;\">
           <div style=\"font-size:0.9rem; opacity:0.7;\">Core symptom satisfied</div>
-          <div style=\"font-size:1.4rem; font-weight:600;\">{'Yes' if c2_ok else 'No'}</div>
+          <div style=\"font-size:1.4rem; font-weight:600;\">{'Yes' if core_ok else 'No'}</div>
+          <div style=\"font-size:0.75rem; opacity:0.75; margin-top:0.25rem;\">Selected: {html.escape(selected_text)}</div>
+          <div style=\"font-size:0.75rem; opacity:0.75;\">Active: {html.escape(active_text)}</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -957,17 +971,123 @@ CRIT_DISPLAY = {
 }
 
 ALL_METRIC_OPTIONS = {
+
     "C1": [d.dist_col for d in C1_DEFS],
+
     "C2": [d.dist_col for d in C2_DEFS],
+
     "C3": [d.dist_col for d in C3_DEFS],
+
     "C4": [d.dist_col for d in C4_DEFS],
+
     "C5": [d.dist_col for d in C5_DEFS],
+
     "C6": [d.dist_col for d in C6_DEFS],
+
     "C7": [d.dist_col for d in C7_DEFS],
+
     "C8": [d.dist_col for d in C8_DEFS],
+
     "C9": [d.dist_col for d in C9_DEFS],
+
 }
 
+
+
+def _normalise_bom_value(raw) -> str:
+    if isinstance(raw, str):
+        val = raw.strip()
+        if not val or val.lower() == "no bom defined":
+            return ""
+        return val
+    return ""
+
+CRIT_BOM_OPTIONS = {
+    "C1": [
+        "(HOB1) Reduced Social Interaction",
+        "(HOB2) Passive Media Binge",
+        "(HOB3) Rumination Browsing loops",
+        "(HOB4) Flattened diurnal Rhythm",
+    ],
+    "C2": [
+        "(HOB1) Shrinking Domain Diversity",
+        "(HOB2) Reduced Interactive Engagement",
+        "(HOB3) Drop in Goal-Oriented Browsing",
+    ],
+    "C3": [
+        "(HOB1) Food-ordering Pattern Shift",
+        "(HOB2) Calorie / Nutrition Information Seeking",
+        "(HOB3) Smart-scale usage Variability",
+    ],
+    "C4": [
+        "(HOB1) Shifted Sleep Timing",
+        "(HOB2) Changed Sleep Duration",
+        "(HOB3) Sleep Fragmentation",
+        "(HOB4) Daytime Hypersomnia / Rhythm Flattening",
+    ],
+    "C5": [
+        "(HOB1) Restless Device Switching (agitation)",
+        "(HOB2) Slowed / Variable Typing Dynamics (retardation)",
+        "(HOB3) \"Screen-check\" Burstiness",
+    ],
+    "C6": [
+        "(HOB1) Extended Day-time Inactivity",
+        "(HOB2) Decline in Effortful Interaction",
+        "(HOB3) Slowed Browsing Tempo",
+        "(HOB4) Delayed Morning Activation",
+    ],
+    "C7": [
+        "(HOB1) Engagement with self-evaluative or mental-health resources",
+        "(HOB2) Digital self-withdrawal / data purge behaviour",
+    ],
+    "C8": [
+        "(HOB1) Fragmented focus / frequent task-switches",
+        "(HOB2) Indecisive information seeking",
+        "(HOB3) Cognitive sluggishness / slow response",
+    ],
+    "C9": [
+        "(HOB1) Crisis-oriented help seeking",
+        "(HOB2) Self-harm community engagement",
+        "(HOB3) Farewell / estate preparation",
+        "(HOB4) Nocturnal rumination spikes",
+    ],
+}
+
+
+def _ensure_bom_field(cfg: dict) -> None:
+    for crit_val in cfg.values():
+        if isinstance(crit_val, dict):
+            for spec in crit_val.values():
+                if isinstance(spec, dict) and "w" in spec:
+                    spec["bom"] = _normalise_bom_value(spec.get("bom"))
+
+_ensure_bom_field(DEFAULT_CFG)
+
+
+def _metric_differs_from_default(crit: str, metric: str, spec: dict) -> bool:
+    default = DEFAULT_CFG.get(crit, {}).get(metric)
+    if default is None:
+        return True
+    try:
+        if not math.isclose(float(spec.get("w", 0.0)), float(default.get("w", 0.0)), rel_tol=1e-9, abs_tol=1e-9):
+            return True
+    except Exception:
+        return True
+    if _normalise_bom_value(spec.get("bom")) != _normalise_bom_value(default.get("bom")):
+        return True
+    mf = spec.get("mf", {}) or {}
+    def_mf = default.get("mf", {}) or {}
+    if str(mf.get("type", "tri")).lower() != str(def_mf.get("type", "tri")).lower():
+        return True
+    for key in ("lo", "mid", "hi"):
+        try:
+            if not math.isclose(float(mf.get(key, 0.0)), float(def_mf.get(key, 0.0)), rel_tol=1e-9, abs_tol=1e-9):
+                return True
+        except Exception:
+            return True
+    if bool(mf.get("invert", False)) != bool(def_mf.get("invert", False)):
+        return True
+    return False
 
 
 def _metric_sort_key(name: str) -> tuple:
@@ -1092,71 +1212,17 @@ def _normalize_uploaded_config(cfg: dict) -> dict:
                 hi = 0.0
             crit_out[m] = {
                 "w": weight,
+                "bom": _normalise_bom_value(spec.get("bom")) if isinstance(spec, dict) else "",
                 "mf": {"type": str(typ).lower(), "lo": lo, "mid": mid, "hi": hi, "invert": invert},
             }
         if crit_out:
             out[crit] = crit_out
 
+    _ensure_bom_field(out)
     return out
 
 
 
-
-
-c1, c2 = st.columns(2)
-with c1:
-    ts = pd.Timestamp.now().strftime("%Y%m%d_%H%M")
-    st.download_button(
-        "Export configuration as JSON",
-        data=json.dumps(cfg_state, indent=2).encode("utf-8"),
-        file_name=f"fasl_config_{ts}.json",
-        mime="application/json",
-    )
-
-    up = st.file_uploader("Import JSON", type=["json"], accept_multiple_files=False)
-    if up is not None:
-        try:
-            uploaded_cfg_raw = json.loads(up.read().decode("utf-8"))
-            uploaded_cfg = _normalize_uploaded_config(uploaded_cfg_raw)
-            if not isinstance(uploaded_cfg, dict):
-                raise ValueError("JSON must be an object")
-            st.success("Configuration parsed. Apply to use.")
-            if st.button("Apply configuration", key="apply_cfg"):
-                cfg_state.clear()
-                cfg_state.update(uploaded_cfg)
-                # Ensure widget state reflects the applied configuration on rerun
-                try:
-                    st.session_state["fasl_gate_M"] = int(cfg_state.get("M", 14))
-                    st.session_state["fasl_gate_N"] = int(cfg_state.get("N", 10))
-                    st.session_state["fasl_gate_theta"] = float(cfg_state.get("theta", 0.7))
-                    st.session_state["fasl_gate_core"] = list(cfg_state.get("core_symptoms", ["C2"]))
-                    for _crit in CRIT_KEYS:
-                        # Select exactly the metrics from the uploaded config (filtered to available)
-                        selected_metrics = [
-                            m for m in cfg_state.get(_crit, {}).keys() if m in ALL_METRIC_OPTIONS.get(_crit, [])
-                        ]
-                        st.session_state[f"sel_{_crit}"] = selected_metrics
-                        # Also push their parameter values into widget state so UI reflects JSON precisely
-                        for _m in selected_metrics:
-                            _spec = cfg_state[_crit].get(_m, {})
-                            _w = float(_spec.get("w", 0.1))
-                            _mf = _spec.get("mf", {})
-                            _lo = float(_mf.get("lo", 0.0))
-                            _mid = float(_mf.get("mid", 0.0))
-                            _hi = float(_mf.get("hi", 0.0))
-                            _inv = bool(_mf.get("invert", False))
-                            st.session_state[f"w_{_crit}_{_m}"] = _w
-                            st.session_state[f"lo_{_crit}_{_m}"] = _lo
-                            st.session_state[f"mid_{_crit}_{_m}"] = _mid
-                            st.session_state[f"hi_{_crit}_{_m}"] = _hi
-                            st.session_state[f"inv_{_crit}_{_m}"] = _inv
-                            # Membership function type (currently only 'tri')
-                            st.session_state[f"mft_{_crit}_{_m}"] = "tri"
-                except Exception:
-                    pass
-                st.rerun()
-        except Exception as e:
-            st.error(f"Failed to load: {e}")
 
 
 cfg_state = st.session_state.setdefault("fasl_cfg", {})
@@ -1164,6 +1230,8 @@ for _k in ("M", "N", "theta", "core_symptoms"):
     if _k not in cfg_state:
         _v = DEFAULT_CFG.get(_k)
         cfg_state[_k] = copy.deepcopy(_v) if isinstance(_v, (dict, list)) else _v
+
+_ensure_bom_field(cfg_state)
 
 
 HIW_MAP = {
@@ -1182,6 +1250,23 @@ HIW_MAP = {
     for d in defs
 }
 
+LABEL_MAP = {
+    d.dist_col: getattr(d, 'label', d.dist_col)
+    for defs in [
+        C1_DEFS,
+        C2_DEFS,
+        C3_DEFS,
+        C4_DEFS,
+        C5_DEFS,
+        C6_DEFS,
+        C7_DEFS,
+        C8_DEFS,
+        C9_DEFS,
+    ]
+    for d in defs
+}
+
+
 
 def _boxplot_with_ranges(
     df: pd.DataFrame, col: str, lo: float, mid: float, hi: float, invert: bool = False
@@ -1195,7 +1280,8 @@ def _boxplot_with_ranges(
     fig = px.box(series, points="all")
     fig.update_layout(title_text="")
     fig.update_xaxes(visible=False)
-    fig.update_yaxes(title=None)
+    axis_label = LABEL_MAP.get(col, col)
+    fig.update_yaxes(title=axis_label)
     # Clip infinite bounds to data range for visualization
     ymin = float(series.min())
     ymax = float(series.max())
@@ -1245,7 +1331,8 @@ def _boxplot_with_ranges_marks(
     fig = px.box(series, points="all")
     fig.update_layout(title_text="")
     fig.update_xaxes(visible=False)
-    fig.update_yaxes(title=None)
+    axis_label = LABEL_MAP.get(col, col)
+    fig.update_yaxes(title=axis_label)
     ymin = float(series.min()); ymax = float(series.max())
     lo_draw = float(lo) if np.isfinite(lo) else ymin
     hi_draw = float(hi) if np.isfinite(hi) else ymax
@@ -1300,7 +1387,9 @@ def _boxplot_membership(
     fig = px.box(mu_vals, points="all", range_y=[0, 1])
     fig.update_layout(title_text="")
     fig.update_xaxes(visible=False)
-    fig.update_yaxes(title=None, range=[0, 1])
+    axis_label = LABEL_MAP.get(col, col)
+    fig.update_yaxes(title=axis_label)
+    fig.update_yaxes(range=[0, 1])
     try:
         good = "rgba(34,197,94,0.10)"; bad = "rgba(239,68,68,0.10)"
         if theta is not None:
@@ -1327,7 +1416,6 @@ def _mf_tri_latex(name: str, lo: float, mid: float, hi: float, invert: bool) -> 
 \end{{cases}}
 """
     return base
-
 
 def _metric_sort_key(name: str) -> tuple:
     """Sort F-prefixed metrics numerically first, then others."""
@@ -1451,11 +1539,13 @@ def _normalize_uploaded_config(cfg: dict) -> dict:
                 hi = 0.0
             crit_out[m] = {
                 "w": weight,
+                "bom": _normalise_bom_value(spec.get("bom")) if isinstance(spec, dict) else "",
                 "mf": {"type": str(typ).lower(), "lo": lo, "mid": mid, "hi": hi, "invert": invert},
             }
         if crit_out:
             out[crit] = crit_out
 
+    _ensure_bom_field(out)
     return out
 
 
@@ -1607,6 +1697,7 @@ for idx, (crit, label) in enumerate(CRIT_TABS):
                 m,
                 {
                     "w": 0.1,
+                    "bom": "",
                     "mf": {
                         "type": "tri",
                         "lo": 0.0,
@@ -1627,6 +1718,8 @@ for idx, (crit, label) in enumerate(CRIT_TABS):
                     "invert": not HIW_MAP.get(k, True),
                 },
             )
+            cfg_state[crit][k].setdefault("bom", "")
+            cfg_state[crit][k]["bom"] = _normalise_bom_value(cfg_state[crit][k].get("bom"))
             with st.expander(f"**{k}**", expanded=False):
                 c1, c2, c3 = st.columns(3)
                 with c1:
@@ -1638,6 +1731,24 @@ for idx, (crit, label) in enumerate(CRIT_TABS):
                         f"MF type – {k}", ["tri"], index=0, key=f"mft_{crit}_{k}",
                         help="Currently only triangular membership is supported.",
                     )
+
+                    available_boms = CRIT_BOM_OPTIONS.get(crit, [])
+                    bom_options = ["No BOM defined"] + available_boms
+                    current_bom = _normalise_bom_value(cfg_state[crit][k].get("bom"))
+                    default_option = current_bom if current_bom in available_boms else "No BOM defined"
+                    bom_state_key = f"bom_{crit}_{k}"
+                    if bom_state_key not in st.session_state:
+                        st.session_state[bom_state_key] = default_option
+                    elif st.session_state[bom_state_key] not in bom_options:
+                        st.session_state[bom_state_key] = default_option
+                    selection = st.selectbox(
+                        f"BOM – {k}",
+                        bom_options,
+                        key=bom_state_key,
+                        help="Select the behavioral observation mapping for this metric.",
+                    )
+                    cfg_state[crit][k]["bom"] = _normalise_bom_value(selection if selection != "No BOM defined" else "")
+
                     inv = st.checkbox(
                         f"invert – {k}",
                         value=bool(mf.get("invert", False)),
@@ -1660,6 +1771,7 @@ for idx, (crit, label) in enumerate(CRIT_TABS):
                         f"lo – {k}", value=float(mf.get("lo", 0.0)), key=f"lo_{crit}_{k}"
                     )
                     mf["hi"], mf["mid"], mf["lo"] = float(hi_val), float(mid_val), float(lo_val)
+
                     if not (lo_val < mid_val < hi_val):
                         st.warning("Ensure lo < mid < hi.")
                 with c3:
@@ -1754,6 +1866,91 @@ with st.container(border=True):
         pass
 
 
+
+
+
+st.write("")
+with st.container(border=True):
+    st.subheader("Configuration Summary & JSON Export")
+    st.caption("Compare your current FASL settings with the built-in defaults and share them as JSON.")
+
+    total_metrics = sum(len(cfg_state.get(crit, {})) for crit in CRIT_KEYS)
+    adjusted_metrics = sum(
+        1
+        for crit in CRIT_KEYS
+        for metric, spec in (cfg_state.get(crit, {}) or {}).items()
+        if _metric_differs_from_default(crit, metric, spec)
+    )
+    added_metrics = sum(
+        1
+        for crit in CRIT_KEYS
+        for metric in (cfg_state.get(crit, {}) or {}).keys()
+        if metric not in (DEFAULT_CFG.get(crit, {}) or {})
+    )
+
+    st.markdown(f"**Metrics configured:** {total_metrics}")
+    st.markdown(f"**Adjusted vs defaults:** {adjusted_metrics}")
+    if added_metrics:
+        st.caption(f"{added_metrics} metric(s) are not part of the default configuration.")
+    st.caption(f"Default config path: `{FASL_CONFIG_PATH}`")
+
+    config_json = json.dumps(cfg_state, indent=2, ensure_ascii=False)
+    download_col, save_col, upload_col = st.columns(3)
+    with download_col:
+        ts = pd.Timestamp.now().strftime("%Y%m%d_%H%M")
+        st.download_button(
+            "Download configuration",
+            data=config_json.encode("utf-8"),
+            file_name=f"fasl_config_{ts}.json",
+            mime="application/json",
+        )
+    with save_col:
+        if st.button("Save current configuration as default", key="fasl_save_cfg"):
+            try:
+                FASL_CONFIG_PATH.write_text(config_json, encoding="utf-8")
+                st.success(f"Saved to {FASL_CONFIG_PATH}")
+            except Exception as exc:
+                st.error(f"Failed to write configuration: {exc}")
+    with upload_col:
+        up = st.file_uploader("Upload configuration (.json)", type=["json"], key="fasl_cfg_upload_footer")
+        if up is not None:
+            try:
+                uploaded_cfg_raw = json.loads(up.read().decode("utf-8"))
+                uploaded_cfg = _normalize_uploaded_config(uploaded_cfg_raw)
+                if not isinstance(uploaded_cfg, dict):
+                    raise ValueError("JSON must be an object")
+                st.success("Configuration parsed. Apply to use.")
+                if st.button("Apply configuration", key="apply_cfg_footer"):
+                    cfg_state.clear()
+                    cfg_state.update(uploaded_cfg)
+                    _ensure_bom_field(cfg_state)
+                    try:
+                        st.session_state["fasl_gate_M"] = int(cfg_state.get("M", 14))
+                        st.session_state["fasl_gate_N"] = int(cfg_state.get("N", 10))
+                        st.session_state["fasl_gate_theta"] = float(cfg_state.get("theta", 0.7))
+                        st.session_state["fasl_gate_core"] = list(cfg_state.get("core_symptoms", ["C2"]))
+                        for _crit in CRIT_KEYS:
+                            selected_metrics = [
+                                m for m in cfg_state.get(_crit, {}).keys() if m in ALL_METRIC_OPTIONS.get(_crit, [])
+                            ]
+                            st.session_state[f"sel_{_crit}"] = selected_metrics
+                            for _m in selected_metrics:
+                                _spec = cfg_state[_crit].get(_m, {}) or {}
+                                _mf = _spec.get("mf", {}) or {}
+                                st.session_state[f"w_{_crit}_{_m}"] = float(_spec.get("w", 0.1))
+                                st.session_state[f"lo_{_crit}_{_m}"] = float(_mf.get("lo", 0.0))
+                                st.session_state[f"mid_{_crit}_{_m}"] = float(_mf.get("mid", 0.0))
+                                st.session_state[f"hi_{_crit}_{_m}"] = float(_mf.get("hi", 0.0))
+                                st.session_state[f"inv_{_crit}_{_m}"] = bool(_mf.get("invert", False))
+                                st.session_state[f"mft_{_crit}_{_m}"] = "tri"
+                                bom_val = _normalise_bom_value(_spec.get("bom"))
+                                bom_options = CRIT_BOM_OPTIONS.get(_crit, [])
+                                st.session_state[f"bom_{_crit}_{_m}"] = bom_val if bom_val in bom_options else "No BOM defined"
+                    except Exception:
+                        pass
+                    st.rerun()
+            except Exception as e:
+                st.error(f"Failed to load: {e}")
 
 
 # Gate decisions per criterion
