@@ -458,32 +458,65 @@ quick = ["[ALL]", "[ALL ONU]", "[ALL BRAS]", "[ALL OTHER]"]
 group_display_options = quick + token_options
 
 with st.sidebar:
-    selected_group_tokens = st.multiselect(
-        "Select dataset groups (prefix match)",
-        options=group_display_options,
-        key="fasl_group_tokens",
-        default=["[ALL OTHER]"]
+    use_feature_cache = st.toggle(
+        "Select feature cache",
+        value=bool(st.session_state.get("fasl_use_feature_cache", False)),
+        key="fasl_use_feature_cache",
+        help="Switch between loading precomputed feature cache snapshots or rebuilding from raw datasets.",
     )
+    try:
+        cache_dir = FEATURE_CACHE_DIR
+        cache_files = sorted(
+            p.name for p in cache_dir.iterdir() if p.is_file() and p.suffix.lower() == ".csv"
+        )
+    except Exception:
+        cache_files = []
+    selected_cache_file = ""
+    selected_group_tokens: list[str] = []
+    if use_feature_cache:
+        selected_cache_file = st.selectbox(
+            "Feature cache snapshot",
+            options=cache_files,
+            index=cache_files.index(st.session_state.get("fasl_feature_cache_file", "")) if st.session_state.get("fasl_feature_cache_file", "") in cache_files else 0 if cache_files else -1,
+            key="fasl_feature_cache_file",
+            help="Load a precomputed ALL_DAILY snapshot from feature_cache.",
+        ) if cache_files else ""
+        if not cache_files:
+            st.caption("No feature cache snapshots found.")
+        selected_cache_files = [selected_cache_file] if selected_cache_file else []
+    else:
+        selected_group_tokens = st.multiselect(
+            "Select dataset groups (prefix match)",
+            options=group_display_options,
+            key="fasl_group_tokens",
+            default=["[ALL OTHER]"],
+        )
+        selected_cache_files = []
 
 auto_selected_from_groups: set[str] = set()
-if "[ALL]" in selected_group_tokens:
-    auto_selected_from_groups |= set(filtered)
-if "[ALL ONU]" in selected_group_tokens:
-    auto_selected_from_groups |= {d for d in filtered if dataset_type(d) == "ONU"}
-if "[ALL BRAS]" in selected_group_tokens:
-    auto_selected_from_groups |= {d for d in filtered if dataset_type(d) == "BRAS"}
-if "[ALL OTHER]" in selected_group_tokens:
-    auto_selected_from_groups |= {d for d in filtered if dataset_type(d) == "Other"}
-for tok in selected_group_tokens:
-    if tok in quick:
-        continue
-    auto_selected_from_groups |= token_to_dsets.get(tok, set())
+if not use_feature_cache:
+    if "[ALL]" in selected_group_tokens:
+        auto_selected_from_groups |= set(filtered)
+    if "[ALL ONU]" in selected_group_tokens:
+        auto_selected_from_groups |= {d for d in filtered if dataset_type(d) == "ONU"}
+    if "[ALL BRAS]" in selected_group_tokens:
+        auto_selected_from_groups |= {d for d in filtered if dataset_type(d) == "BRAS"}
+    if "[ALL OTHER]" in selected_group_tokens:
+        auto_selected_from_groups |= {d for d in filtered if dataset_type(d) == "Other"}
+    for tok in selected_group_tokens:
+        if tok in quick:
+            continue
+        auto_selected_from_groups |= token_to_dsets.get(tok, set())
 
 selected_base_names = sorted(auto_selected_from_groups)
-if not selected_base_names:
+if not use_feature_cache and not selected_base_names:
     st.info("No datasets selected. Choose dataset type(s) and group(s) in the sidebar.")
     st.stop()
+if use_feature_cache and not selected_cache_files:
+    st.info("Select a feature cache snapshot to continue.")
+    st.stop()
 
+refresh_requested = False
 with st.sidebar:
     st.header("Window & Gate")
     gate_window = st.number_input(
@@ -524,23 +557,14 @@ with st.sidebar:
     cfg_state["N"] = int(gate_need)
     cfg_state["theta"] = float(theta_default)
     cfg_state["core_symptoms"] = core_criteria
+    refresh_requested = st.button(
+        "Refresh cached day metrics",
+        key="fasl_refresh_cache",
+        help="Drop cached ALL_DAILY data and rebuild from source files.",
+    )
 
-# All‑days aufbauen (leichtgewichtige Rekonstruktion)
-# Show the two status panels side‑by‑side
-col_s_left, col_s_right = st.columns(2)
-with col_s_left:
-    with st.status("Indexing available days for the current selection…", expanded=False) as s1:
-        days = available_days_for(selected_base_names)
-        if not days:
-            s1.update(
-                label="No 5‑minute partitions found for the current selection.", state="error"
-            )
-            st.stop()
-        s1.update(label=f"Found {len(days)} day(s).", state="complete")
-
-
-def _cache_key_for_selection(base_names: list[str]) -> str:
-    return hashlib.md5("|".join(sorted(base_names)).encode("utf-8")).hexdigest()
+def _cache_key_for_selection(items: list[str]) -> str:
+    return hashlib.md5("|".join(sorted(items)).encode("utf-8")).hexdigest()
 
 
 def _cache_path_for_selection(base_names: list[str]) -> str:
@@ -549,47 +573,146 @@ def _cache_path_for_selection(base_names: list[str]) -> str:
     )
 
 
+if refresh_requested:
+    st.session_state["fasl_force_refresh"] = True
+
+selection_signature = selected_base_names + [f"[cache]{name}" for name in selected_cache_files]
+selection_key = _cache_key_for_selection(selection_signature)
+
+days_cache: dict[str, list[pd.Timestamp]] = st.session_state.setdefault("fasl_days_cache", {})
+daily_cache: dict[str, pd.DataFrame] = st.session_state.setdefault("fasl_all_daily_cache", {})
+source_map: dict[str, dict[str, Any]] = st.session_state.setdefault("fasl_daily_source_meta", {})
+
+if st.session_state.pop("fasl_force_refresh", False):
+    days_cache.pop(selection_key, None)
+    daily_cache.pop(selection_key, None)
+    source_map.pop(selection_key, None)
+
+cache_load_warnings: list[str] = []
+if selected_cache_files:
+    cache_frames: list[pd.DataFrame] = []
+    for fname in selected_cache_files:
+        fpath = FEATURE_CACHE_DIR / fname
+        if not fpath.exists():
+            cache_load_warnings.append(f"Feature cache '{fname}' not found; skipped.")
+            continue
+        try:
+            df_cache = pd.read_csv(fpath, parse_dates=["Date"])
+        except Exception:
+            try:
+                df_cache = pd.read_csv(fpath)
+            except Exception:
+                cache_load_warnings.append(f"Failed to load feature cache '{fname}'.")
+                continue
+            if "Date" in df_cache.columns:
+                df_cache["Date"] = pd.to_datetime(df_cache["Date"], errors="coerce")
+        if "Date" not in df_cache.columns:
+            cache_load_warnings.append(f"Feature cache '{fname}' has no Date column; skipped.")
+            continue
+        df_cache["Date"] = pd.to_datetime(df_cache["Date"], errors="coerce")
+        df_cache = df_cache.dropna(subset=["Date"])
+        if df_cache.empty:
+            cache_load_warnings.append(f"Feature cache '{fname}' contains no dated rows; skipped.")
+            continue
+        cache_frames.append(df_cache)
+    if cache_frames:
+        merged_cache = (
+            pd.concat(cache_frames, ignore_index=True)
+            .sort_values("Date")
+            .drop_duplicates(subset=["Date"], keep="last")
+        )
+        merged_cache["Date"] = pd.to_datetime(merged_cache["Date"], errors="coerce")
+        merged_cache = merged_cache.dropna(subset=["Date"]).sort_values("Date")
+        if not merged_cache.empty:
+            day_series = merged_cache["Date"].dt.normalize()
+            days_cache[selection_key] = day_series.drop_duplicates().tolist()
+            daily_cache[selection_key] = merged_cache.copy()
+            source_map[selection_key] = {"type": "feature_cache", "files": list(selected_cache_files)}
+    for msg in cache_load_warnings:
+        st.sidebar.warning(msg)
+
+# All-days aufbauen (leichtgewichtige Rekonstruktion)
+col_s_left, col_s_right = st.columns(2)
+
+days: list[pd.Timestamp] = []
+with col_s_left:
+    cached_days = days_cache.get(selection_key)
+    if cached_days:
+        days = [pd.to_datetime(d).normalize() for d in cached_days]
+        st.success(f"Found {len(days)} day(s). (session cache)")
+    else:
+        with st.status("Indexing available days for the current selection…", expanded=False) as s1:
+            days = available_days_for(selected_base_names)
+            if not days:
+                s1.update(
+                    label="No 5-minute partitions found for the current selection.", state="error"
+                )
+                st.stop()
+            s1.update(label=f"Found {len(days)} day(s).", state="complete")
+        days_cache[selection_key] = [pd.to_datetime(d).normalize() for d in days]
+
+if not days:
+    st.error("No daily partitions available for the current selection.")
+    st.stop()
+
+ALL_DAILY = pd.DataFrame()
 with col_s_right:
-    with st.status(
-        "Building per‑day base features (ALL_DAILY)…", expanded=False
-    ) as s2:
-        cpath = _cache_path_for_selection(selected_base_names)
-        loaded = pd.DataFrame()
-        if os.path.isfile(cpath):
-            try:
-                loaded = pd.read_csv(cpath, parse_dates=["Date"])
-            except Exception:
-                loaded = pd.DataFrame()
-        want = set(pd.to_datetime(days).normalize())
-        have = (
-            set(pd.to_datetime(loaded["Date"]).dt.normalize())
-            if (not loaded.empty and "Date" in loaded.columns)
-            else set()
-        )
-        missing = sorted(list(want - have))
-        missing_metric_cols = (
-            [col for col in EXPECTED_METRIC_COLUMNS if col not in loaded.columns]
-            if not loaded.empty
-            else list(EXPECTED_METRIC_COLUMNS)
-        )
+    cached_df = daily_cache.get(selection_key)
+    if cached_df is not None and not cached_df.empty:
+        ALL_DAILY = cached_df.copy()
+        st.success(f"DONE: {len(ALL_DAILY)} day(s) ready (session cache).")
+    else:
+        with st.status(
+            "Building per-day base features (ALL_DAILY)…", expanded=False
+        ) as s2:
+            cpath = _cache_path_for_selection(selected_base_names)
+            loaded = pd.DataFrame()
+            if os.path.isfile(cpath):
+                try:
+                    loaded = pd.read_csv(cpath, parse_dates=["Date"])
+                except Exception:
+                    loaded = pd.DataFrame()
+            want = set(pd.to_datetime(days).normalize())
+            have = (
+                set(pd.to_datetime(loaded["Date"]).dt.normalize())
+                if (not loaded.empty and "Date" in loaded.columns)
+                else set()
+            )
+            missing = sorted(list(want - have))
+            missing_metric_cols = (
+                [col for col in EXPECTED_METRIC_COLUMNS if col not in loaded.columns]
+                if not loaded.empty
+                else list(EXPECTED_METRIC_COLUMNS)
+            )
 
-        if loaded.empty or missing or missing_metric_cols:
-            ALL_DAILY = compute_all_daily(selected_base_names, days)
-            try:
-                ALL_DAILY.to_csv(cpath, index=False)
-            except Exception:
-                pass
-        else:
-            ALL_DAILY = loaded.sort_values("Date")
-        s2.update(
-            label=f"DONE: {len(ALL_DAILY)} day(s) ready (cache: {'used' if os.path.isfile(cpath) else 'new'}).",
-            state="complete",
-        )
+            if loaded.empty or missing or missing_metric_cols:
+                ALL_DAILY = compute_all_daily(selected_base_names, days)
+                try:
+                    ALL_DAILY.to_csv(cpath, index=False)
+                except Exception:
+                    pass
+            else:
+                ALL_DAILY = loaded.sort_values("Date")
+            s2.update(
+                label=f"DONE: {len(ALL_DAILY)} day(s) ready (cache: {'used' if os.path.isfile(cpath) else 'new'}).",
+                state="complete",
+            )
+        if not ALL_DAILY.empty:
+            daily_cache[selection_key] = ALL_DAILY.copy()
+            source_map[selection_key] = {"type": "computed"}
+            if selection_key not in days_cache:
+                day_series = pd.to_datetime(ALL_DAILY["Date"], errors="coerce").dropna().dt.normalize()
+                days_cache[selection_key] = day_series.drop_duplicates().tolist()
 
+if ALL_DAILY.empty:
+    st.error("No day metrics available")
+    st.stop()
 
-    if ALL_DAILY.empty:
-        st.error("No day metrics available")
-        st.stop()
+source_info = source_map.get(selection_key)
+if source_info and source_info.get("type") == "feature_cache":
+    files = source_info.get("files") or list(selected_cache_files)
+    if files:
+        st.caption(f"Feature cache snapshot(s) loaded: {', '.join(files)}")
 
 # Model configuration notice
 pass
