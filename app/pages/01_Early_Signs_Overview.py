@@ -17,17 +17,45 @@ from metrics.base_features import compute_daily_base_record
 from metrics.common import enrich_with_hostnames
 from md_explanations import MD_EXPLANATIONS
 from utils.auto_tune import auto_tune_for_criterion, AutoTuneResult
-from metrics.criterion1 import C1_DEFS
-from metrics.criterion2 import C2_DEFS
-from metrics.criterion3 import C3_DEFS
-from metrics.criterion4 import C4_DEFS
-from metrics.criterion5 import C5_DEFS
-from metrics.criterion6 import C6_DEFS
-from metrics.criterion7 import C7_DEFS
-from metrics.criterion8 import C8_DEFS
-from metrics.criterion9 import C9_DEFS
+from metrics.criterion1 import C1_DEFS, Criterion1
+from metrics.criterion2 import C2_DEFS, Criterion2
+from metrics.criterion3 import C3_DEFS, Criterion3
+from metrics.criterion4 import C4_DEFS, Criterion4
+from metrics.criterion5 import C5_DEFS, Criterion5
+from metrics.criterion6 import C6_DEFS, Criterion6
+from metrics.criterion7 import C7_DEFS, Criterion7
+from metrics.criterion8 import C8_DEFS, Criterion8
+from metrics.criterion9 import C9_DEFS, Criterion9
 
 CRIT_KEYS = ["C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9"]
+
+CRITERION_CLASSES = (
+    Criterion1,
+    Criterion2,
+    Criterion3,
+    Criterion4,
+    Criterion5,
+    Criterion6,
+    Criterion7,
+    Criterion8,
+    Criterion9,
+)
+
+EXPECTED_METRIC_COLUMNS: set[str] = {
+    d.dist_col
+    for defs in (
+        C1_DEFS,
+        C2_DEFS,
+        C3_DEFS,
+        C4_DEFS,
+        C5_DEFS,
+        C6_DEFS,
+        C7_DEFS,
+        C8_DEFS,
+        C9_DEFS,
+    )
+    for d in defs
+}
 
 # ------------------------------ Page header / Auth -----------------------------
 
@@ -184,8 +212,13 @@ def available_days_for(base_names: list[str]) -> list[pd.Timestamp]:
 
 @st.cache_data(show_spinner=False)
 def compute_all_daily(base_names: list[str], days: list[pd.Timestamp]) -> pd.DataFrame:
+    if not base_names or not days:
+        return pd.DataFrame(columns=["Date"])
+
     rows: List[dict] = []
-    for d in days:
+    day_list = sorted({pd.to_datetime(d).normalize() for d in days})
+
+    for d in day_list:
         frames = []
         for bn in base_names:
             df_b = load_day_dataframe(bn, d)
@@ -193,12 +226,47 @@ def compute_all_daily(base_names: list[str], days: list[pd.Timestamp]) -> pd.Dat
                 frames.append(df_b)
         if not frames:
             continue
+
         df_day = pd.concat(frames, ignore_index=True)
         df_day["Timestamp"] = pd.to_datetime(df_day["Timestamp"], errors="coerce")
+        df_day = df_day.dropna(subset=["Timestamp"]).sort_values("Timestamp")
+
         today = compute_daily_base_record(df_day)
         today["Date"] = pd.to_datetime(d).normalize()
+
+        history_df = pd.DataFrame(rows).sort_values("Date") if rows else pd.DataFrame(columns=["Date"])
+        aux_ctx = {
+            "today_row": today,
+            "ALL_DAILY": history_df,
+            "IS_val": today.get("IS"),
+            "IV_val": today.get("IV"),
+            "nd_ratio": today.get("ND_Ratio"),
+            "n_total_packets_today": today.get("n_total_packets_today"),
+            "n_night_packets_today": today.get("n_night_packets_today"),
+            "night_pkts_today": today.get("night_pkts_today"),
+            "day_pkts_today": today.get("day_pkts_today"),
+            "down_bytes_today": today.get("down_bytes_today"),
+            "up_bytes_today": today.get("up_bytes_today"),
+        }
+
+        for crit_cls in CRITERION_CLASSES:
+            try:
+                metrics = crit_cls().compute(df_day, today, aux_ctx, history_df)
+            except Exception:
+                continue
+            if not metrics:
+                continue
+            for m in metrics:
+                dist_col = m.get("dist_col")
+                if dist_col:
+                    today[dist_col] = m.get("value")
+
         rows.append(today)
-    return pd.DataFrame(rows).sort_values("Date") if rows else pd.DataFrame(columns=["Date"])
+
+    if not rows:
+        return pd.DataFrame(columns=["Date"])
+    df_out = pd.DataFrame(rows).sort_values("Date")
+    return df_out
 
 
 # --------------------------- Membership functions -----------------------------
@@ -499,14 +567,14 @@ with col_s_right:
             else set()
         )
         missing = sorted(list(want - have))
+        missing_metric_cols = (
+            [col for col in EXPECTED_METRIC_COLUMNS if col not in loaded.columns]
+            if not loaded.empty
+            else list(EXPECTED_METRIC_COLUMNS)
+        )
 
-        if loaded.empty or missing:
-            add_rows = compute_all_daily(selected_base_names, missing if missing else days)
-            ALL_DAILY = (
-                pd.concat([loaded, add_rows], ignore_index=True)
-                if not loaded.empty
-                else add_rows
-            ).sort_values("Date")
+        if loaded.empty or missing or missing_metric_cols:
+            ALL_DAILY = compute_all_daily(selected_base_names, days)
             try:
                 ALL_DAILY.to_csv(cpath, index=False)
             except Exception:
@@ -1441,6 +1509,111 @@ def _boxplot_membership(
     st.plotly_chart(fig, use_container_width=True)
 
 
+def _membership_curve_chart(
+    df: pd.DataFrame,
+    col: str,
+    lo: float,
+    mid: float,
+    hi: float,
+    invert: bool = False,
+) -> None:
+    import numpy as np
+    import plotly.graph_objects as go
+
+    axis_label = LABEL_MAP.get(col, col)
+    if col in df.columns:
+        series = pd.to_numeric(df[col], errors="coerce").replace([np.inf, -np.inf], np.nan).dropna()
+    else:
+        series = pd.Series(dtype=float)
+
+    candidates: list[float] = []
+    for val in (lo, mid, hi):
+        if np.isfinite(val):
+            candidates.append(float(val))
+    if not series.empty:
+        candidates.extend([float(series.min()), float(series.max())])
+    if not np.isfinite(lo) and np.isfinite(mid):
+        candidates.append(float(mid))
+    if not np.isfinite(hi) and np.isfinite(mid):
+        candidates.append(float(mid))
+
+    finite_candidates = [c for c in candidates if np.isfinite(c)]
+    if finite_candidates:
+        x_min = min(finite_candidates)
+        x_max = max(finite_candidates)
+    else:
+        x_min, x_max = -1.0, 1.0
+
+    if x_min == x_max:
+        x_min -= 1.0
+        x_max += 1.0
+
+    span = x_max - x_min
+    margin = 0.1 * span if np.isfinite(span) and span > 0 else 1.0
+    x_min -= margin
+    x_max += margin
+
+    x_values = np.linspace(x_min, x_max, 200)
+    y_values = [
+        mf_tri(float(xv), float(lo), float(mid), float(hi), invert=bool(invert))
+        for xv in x_values
+    ]
+
+    mu_label = re.sub(r"[^A-Za-z0-9]+", " ", axis_label).strip() or axis_label
+    y_axis_title = f"\u03BC_{mu_label}(x)"
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=x_values,
+            y=y_values,
+            mode="lines",
+            name="Membership",
+            line=dict(color="#2563eb"),
+        )
+    )
+
+    if not series.empty:
+        scatter_y = [
+            mf_tri(float(val), float(lo), float(mid), float(hi), invert=bool(invert))
+            for val in series
+        ]
+        fig.add_trace(
+            go.Scatter(
+                x=series.tolist(),
+                y=scatter_y,
+                mode="markers",
+                name="Daily values",
+                marker=dict(size=6, color="#0ea5e9", opacity=0.6),
+            )
+        )
+
+    for val, color, label in (
+        (lo, "#0ea5e9", "lo"),
+        (mid, "#f59e0b", "mid"),
+        (hi, "#ef4444", "hi"),
+    ):
+        if np.isfinite(val):
+            fig.add_vline(x=float(val), line_dash="dash", line_color=color)
+            fig.add_annotation(
+                x=float(val),
+                y=1.02,
+                text=label,
+                showarrow=False,
+                yanchor="bottom",
+                font=dict(color=color, size=10),
+            )
+
+    fig.update_layout(
+        title="",
+        margin=dict(l=40, r=10, t=20, b=40),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+    )
+    fig.update_xaxes(title=axis_label)
+    fig.update_yaxes(title=y_axis_title, range=[0, 1.05])
+    st.plotly_chart(fig, use_container_width=True)
+
+
 def _mf_tri_latex(name: str, lo: float, mid: float, hi: float, invert: bool) -> str:
     """Return LaTeX for a triangular membership with given params."""
     def fmt(x: float) -> str:
@@ -1703,7 +1876,7 @@ for idx, (crit, label) in enumerate(CRIT_TABS):
                                     pass
                             with c2d:
                                 try:
-                                    tab_raw, tab_norm = st.tabs(["Raw", "Normalized (mu)"])
+                                    tab_raw, tab_norm, tab_membership = st.tabs(["Raw", "Normalized (mu)", "Membership"])
                                     with tab_raw:
                                         _boxplot_with_ranges_marks(
                                             ALL_DAILY,
@@ -1725,6 +1898,15 @@ for idx, (crit, label) in enumerate(CRIT_TABS):
                                             float(r.hi if np.isfinite(r.hi) else r.mid),
                                             invert=bool(r.invert),
                                             theta=float(theta_default),
+                                        )
+                                    with tab_membership:
+                                        _membership_curve_chart(
+                                            ALL_DAILY,
+                                            r.metric,
+                                            float(r.lo),
+                                            float(r.mid),
+                                            float(r.hi if np.isfinite(r.hi) else r.mid),
+                                            invert=bool(r.invert),
                                         )
                                 except Exception:
                                     st.info("No values for plotting.")
@@ -1816,7 +1998,7 @@ for idx, (crit, label) in enumerate(CRIT_TABS):
                         st.warning("Ensure lo <= mid <= hi.")
                 with c3:
                     try:
-                        tab_raw, tab_norm = st.tabs(["Raw", "Normalised"])
+                        tab_raw, tab_norm, tab_membership = st.tabs(["Raw", "Normalised", "Membership"])
                         with tab_raw:
                             _boxplot_with_ranges(
                                 ALL_DAILY,
@@ -1835,6 +2017,15 @@ for idx, (crit, label) in enumerate(CRIT_TABS):
                                 float(mf.get("hi", 0.0)),
                                 invert=bool(mf.get("invert", False)),
                                 theta=float(theta_default),
+                            )
+                        with tab_membership:
+                            _membership_curve_chart(
+                                ALL_DAILY,
+                                k,
+                                float(mf.get("lo", 0.0)),
+                                float(mf.get("mid", 0.0)),
+                                float(mf.get("hi", 0.0)),
+                                invert=bool(mf.get("invert", False)),
                             )
                     except Exception:
                         pass

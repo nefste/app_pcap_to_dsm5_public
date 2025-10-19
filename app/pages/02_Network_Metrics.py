@@ -8,6 +8,7 @@ import re
 import hashlib
 import json
 import copy
+import math
 from datetime import datetime, date
 from pathlib import Path
 
@@ -24,15 +25,15 @@ from utils.acronyms import render_acronyms_helper_in_sidebar
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 
 # ---- criterion implementations ----
-from metrics.criterion1 import Criterion1
-from metrics.criterion2 import Criterion2
-from metrics.criterion3 import Criterion3
-from metrics.criterion4 import Criterion4
-from metrics.criterion5 import Criterion5
-from metrics.criterion6 import Criterion6
-from metrics.criterion7 import Criterion7
-from metrics.criterion8 import Criterion8
-from metrics.criterion9 import Criterion9
+from metrics.criterion1 import Criterion1, C1_DEFS
+from metrics.criterion2 import Criterion2, C2_DEFS
+from metrics.criterion3 import Criterion3, C3_DEFS
+from metrics.criterion4 import Criterion4, C4_DEFS
+from metrics.criterion5 import Criterion5, C5_DEFS
+from metrics.criterion6 import Criterion6, C6_DEFS
+from metrics.criterion7 import Criterion7, C7_DEFS
+from metrics.criterion8 import Criterion8, C8_DEFS
+from metrics.criterion9 import Criterion9, C9_DEFS
 
 from metrics.common import (
     enrich_with_hostnames,
@@ -145,6 +146,123 @@ os.makedirs(FEATURE_CACHE_DIR, exist_ok=True)
 FASL_CONFIG_PATH = APP_DIR / "fasl_config.json"
 DEFAULT_FASL_CONFIG_PATH = APP_DIR / "utils" / "fasl_config_20250912_0946.json"
 CRITERION_CODES = ["C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9"]
+CRIT_KEYS = CRITERION_CODES
+
+ALL_METRIC_OPTIONS = {
+    "C1": [d.dist_col for d in C1_DEFS],
+    "C2": [d.dist_col for d in C2_DEFS],
+    "C3": [d.dist_col for d in C3_DEFS],
+    "C4": [d.dist_col for d in C4_DEFS],
+    "C5": [d.dist_col for d in C5_DEFS],
+    "C6": [d.dist_col for d in C6_DEFS],
+    "C7": [d.dist_col for d in C7_DEFS],
+    "C8": [d.dist_col for d in C8_DEFS],
+    "C9": [d.dist_col for d in C9_DEFS],
+}
+
+
+def _normalise_bom_value(raw) -> str:
+    if isinstance(raw, str):
+        val = raw.strip()
+        if not val or val.lower() == "no bom defined":
+            return ""
+        return val
+    return ""
+
+
+CRIT_BOM_OPTIONS = {
+    "C1": [
+        "(HOB1) Reduced Social Interaction",
+        "(HOB2) Passive Media Binge",
+        "(HOB3) Rumination Browsing loops",
+        "(HOB4) Flattened diurnal Rhythm",
+    ],
+    "C2": [
+        "(HOB1) Shrinking Domain Diversity",
+        "(HOB2) Reduced Interactive Engagement",
+        "(HOB3) Drop in Goal-Oriented Browsing",
+    ],
+    "C3": [
+        "(HOB1) Food-ordering Pattern Shift",
+        "(HOB2) Calorie / Nutrition Information Seeking",
+        "(HOB3) Smart-scale usage Variability",
+    ],
+    "C4": [
+        "(HOB1) Shifted Sleep Timing",
+        "(HOB2) Changed Sleep Duration",
+        "(HOB3) Sleep Fragmentation",
+        "(HOB4) Daytime Hypersomnia / Rhythm Flattening",
+    ],
+    "C5": [
+        "(HOB1) Restless Device Switching (agitation)",
+        "(HOB2) Slowed / Variable Typing Dynamics (retardation)",
+        "(HOB3) \"Screen-check\" Burstiness",
+    ],
+    "C6": [
+        "(HOB1) Extended Day-time Inactivity",
+        "(HOB2) Decline in Effortful Interaction",
+        "(HOB3) Slowed Browsing Tempo",
+        "(HOB4) Delayed Morning Activation",
+    ],
+    "C7": [
+        "(HOB1) Guilt-tripping / Negative Self-talk",
+        "(HOB2) Catastrophic Outlook",
+        "(HOB3) Reputation / Account Security Anxiety",
+    ],
+    "C8": [
+        "(HOB1) Fragmented Browsing / Task Switching",
+        "(HOB2) Escalating Search Reformulation",
+        "(HOB3) Decision Paralysis via Backtracking",
+    ],
+    "C9": [
+        "(HOB1) Active Crisis Searching",
+        "(HOB2) Self-harm Community Immersion",
+        "(HOB3) End-of-life Administrative Planning",
+    ],
+}
+
+
+def _ensure_bom_field(cfg: dict) -> None:
+    for crit_val in cfg.values():
+        if isinstance(crit_val, dict):
+            for spec in crit_val.values():
+                if isinstance(spec, dict) and "w" in spec:
+                    spec["bom"] = _normalise_bom_value(spec.get("bom"))
+
+
+def _get_default_cfg() -> dict:
+    defaults = st.session_state.get("__fasl_cfg_default__")
+    return defaults if isinstance(defaults, dict) else {}
+
+
+def _metric_differs_from_default(crit: str, metric: str, spec: dict) -> bool:
+    defaults = _get_default_cfg()
+    default_bucket = defaults.get(crit)
+    default = default_bucket.get(metric) if isinstance(default_bucket, dict) else None
+    if default is None:
+        return True
+    if not isinstance(spec, dict):
+        return True
+    try:
+        if not math.isclose(float(spec.get("w", 0.0)), float(default.get("w", 0.0)), rel_tol=1e-9, abs_tol=1e-9):
+            return True
+    except Exception:
+        return True
+    if _normalise_bom_value(spec.get("bom")) != _normalise_bom_value(default.get("bom")):
+        return True
+    mf = spec.get("mf", {}) or {}
+    def_mf = default.get("mf", {}) or {}
+    if str(mf.get("type", "tri")).lower() != str(def_mf.get("type", "tri")).lower():
+        return True
+    for key in ("lo", "mid", "hi"):
+        try:
+            if not math.isclose(float(mf.get(key, 0.0)), float(def_mf.get(key, 0.0)), rel_tol=1e-9, abs_tol=1e-9):
+                return True
+        except Exception:
+            return True
+    if bool(mf.get("invert", False)) != bool(def_mf.get("invert", False)):
+        return True
+    return False
 
 
 
@@ -322,6 +440,41 @@ def _ensure_fasl_config_state():
         st.session_state["fasl_cfg"] = copy.deepcopy(cfg)
     else:
         st.session_state.setdefault("__fasl_cfg_source__", "session")
+
+
+def _normalize_uploaded_config(cfg: dict) -> dict:
+    normalized = _normalize_fasl_cfg(cfg)
+    if not isinstance(normalized, dict):
+        return {}
+
+    out: dict[str, object] = {}
+    for key in ("M", "N", "theta"):
+        if key in normalized:
+            out[key] = normalized[key]
+
+    core = normalized.get("core_symptoms", [])
+    if isinstance(core, (list, tuple, set)):
+        out["core_symptoms"] = [str(c) for c in core if str(c) in CRIT_KEYS]
+    elif isinstance(core, str) and core in CRIT_KEYS:
+        out["core_symptoms"] = [core]
+
+    for crit in CRIT_KEYS:
+        bucket = normalized.get(crit)
+        if not isinstance(bucket, dict):
+            continue
+        allowed = set(ALL_METRIC_OPTIONS.get(crit, []))
+        filtered: dict[str, dict] = {}
+        for metric, spec in bucket.items():
+            if metric not in allowed or not isinstance(spec, dict):
+                continue
+            spec_copy = copy.deepcopy(spec)
+            spec_copy["bom"] = _normalise_bom_value(spec_copy.get("bom"))
+            filtered[metric] = spec_copy
+        if filtered:
+            out[crit] = filtered
+
+    _ensure_bom_field(out)
+    return out
 
 
 def _ensure_fasl_metric_entry(criterion: str, metric_key: str) -> dict:
@@ -1795,36 +1948,47 @@ compute_and_render(8, "Criterion 9 — Suicidality", "Recurrent thoughts of deat
 
 st.write("")
 with st.container(border=True):
-    st.subheader("FASL Configuration")
-    st.caption("Share and persist the triangular membership settings used by Early Signs.")
+    st.subheader("Configuration Summary & JSON Export")
+    st.caption("Compare your current FASL settings with the built-in defaults and share them as JSON.")
 
-    load_error = st.session_state.get("__fasl_cfg_load_error__")
-    if load_error:
-        st.warning(f"Could not load configuration from disk: {load_error}")
-        st.session_state.pop("__fasl_cfg_load_error__", None)
+    cfg_state = st.session_state.setdefault("fasl_cfg", {})
+    defaults = _get_default_cfg()
 
-    dirty = bool(st.session_state.get("__fasl_cfg_dirty__", False))
-    source = st.session_state.get("__fasl_cfg_source__", "session")
-    st.caption(f"Last source: {source}; default path: `{FASL_CONFIG_PATH}`")
-    if dirty:
-        st.caption("Unsaved membership edits pending save.")
+    total_metrics = 0
+    adjusted_metrics = 0
+    added_metrics = 0
+    for crit in CRIT_KEYS:
+        bucket = cfg_state.get(crit, {})
+        if not isinstance(bucket, dict):
+            continue
+        total_metrics += len(bucket)
+        default_bucket = defaults.get(crit, {})
+        if not isinstance(default_bucket, dict):
+            default_bucket = {}
+        for metric, spec in bucket.items():
+            if isinstance(spec, dict) and _metric_differs_from_default(crit, metric, spec):
+                adjusted_metrics += 1
+            if metric not in default_bucket:
+                added_metrics += 1
 
-    cfg = st.session_state.get("fasl_cfg", {})
-    metric_count = sum(len(v) for k, v in cfg.items() if isinstance(v, dict) and k in CRITERION_CODES)
-    st.markdown(f"**Metrics configured:** {metric_count}")
+    st.markdown(f"**Metrics configured:** {total_metrics}")
+    st.markdown(f"**Adjusted vs defaults:** {adjusted_metrics}")
+    if added_metrics:
+        st.caption(f"{added_metrics} metric(s) are not part of the default configuration.")
+    st.caption(f"Default config path: `{FASL_CONFIG_PATH}`")
 
-    config_json = json.dumps(cfg, indent=2, ensure_ascii=False)
-
-    dl_col, save_col, reload_col = st.columns(3)
-    with dl_col:
+    config_json = json.dumps(cfg_state, indent=2, ensure_ascii=False)
+    download_col, save_col, upload_col = st.columns(3)
+    with download_col:
+        ts = pd.Timestamp.now().strftime("%Y%m%d_%H%M")
         st.download_button(
-            "Download JSON",
+            "Download configuration",
             data=config_json.encode("utf-8"),
-            file_name="fasl_config.json",
+            file_name=f"fasl_config_{ts}.json",
             mime="application/json",
         )
     with save_col:
-        if st.button("Save as default", key="fasl_save_cfg_network"):
+        if st.button("Save current configuration as default", key="fasl_save_cfg_network"):
             try:
                 FASL_CONFIG_PATH.write_text(config_json, encoding="utf-8")
                 st.session_state["__fasl_cfg_source__"] = "disk"
@@ -1832,46 +1996,58 @@ with st.container(border=True):
                 st.success(f"Saved to {FASL_CONFIG_PATH}")
             except Exception as exc:
                 st.error(f"Failed to write configuration: {exc}")
-    with reload_col:
-        if st.button("Reload from disk", key="fasl_reload_cfg_network"):
-            cfg_disk, err = _load_fasl_config_from_disk()
-            if err:
-                st.error(f"Failed to load configuration: {err}")
-            elif cfg_disk is None:
-                st.info("No configuration file found on disk.")
-            else:
-                st.session_state["fasl_cfg"] = cfg_disk
-                st.session_state["__fasl_cfg_source__"] = "disk"
-                st.session_state["__fasl_cfg_dirty__"] = False
-                st.success("Reloaded configuration from disk.")
-                st.rerun()
-
-    upload_col, reset_col = st.columns(2)
     with upload_col:
-        uploaded = st.file_uploader("Upload configuration (.json)", type="json", key="fasl_cfg_upload_network")
-        if uploaded is not None:
+        up = st.file_uploader("Upload configuration (.json)", type=["json"], key="fasl_cfg_upload_network")
+        if up is not None:
             try:
-                data = json.loads(uploaded.read().decode("utf-8"))
-                cfg_upload = _normalize_fasl_cfg(data)
-                if not isinstance(cfg_upload, dict):
-                    raise ValueError("Uploaded JSON must be an object")
-                st.session_state["fasl_cfg"] = cfg_upload
-                st.session_state["__fasl_cfg_source__"] = "upload"
-                st.session_state["__fasl_cfg_dirty__"] = False
-                st.success("Configuration applied from upload. Rerunning...")
-                st.rerun()
-            except json.JSONDecodeError as exc:
-                st.error(f"Invalid JSON file: {exc}")
-            except Exception as exc:
-                st.error(f"Could not apply configuration: {exc}")
-    with reset_col:
-        if st.button("Reset to defaults", key="fasl_reset_defaults_network"):
-            default_cfg = copy.deepcopy(st.session_state.get("__fasl_cfg_default__") or _load_default_fasl_config())
-            if default_cfg:
-                st.session_state["fasl_cfg"] = default_cfg
-                st.session_state["__fasl_cfg_source__"] = "defaults"
-                st.session_state["__fasl_cfg_dirty__"] = False
-                st.success("Restored built-in default configuration.")
-                st.rerun()
-            else:
-                st.warning("No built-in default configuration available.")
+                uploaded_cfg_raw = json.loads(up.read().decode("utf-8"))
+                uploaded_cfg = _normalize_uploaded_config(uploaded_cfg_raw)
+                if not isinstance(uploaded_cfg, dict):
+                    raise ValueError("JSON must be an object")
+                st.success("Configuration parsed. Apply to use.")
+                if st.button("Apply configuration", key="apply_cfg_network"):
+                    cfg_state.clear()
+                    cfg_state.update(uploaded_cfg)
+                    _ensure_bom_field(cfg_state)
+                    st.session_state["fasl_cfg"] = cfg_state
+                    st.session_state["__fasl_cfg_source__"] = "upload"
+                    st.session_state["__fasl_cfg_dirty__"] = False
+                    try:
+                        st.session_state["fasl_gate_M"] = int(cfg_state.get("M", 14))
+                        st.session_state["fasl_gate_N"] = int(cfg_state.get("N", 10))
+                        st.session_state["fasl_gate_theta"] = float(cfg_state.get("theta", 0.7))
+                        st.session_state["fasl_gate_core"] = list(cfg_state.get("core_symptoms", ["C2"]))
+                        for _crit in CRIT_KEYS:
+                            selected_metrics = [
+                                m for m in (cfg_state.get(_crit, {}) or {}).keys() if m in ALL_METRIC_OPTIONS.get(_crit, [])
+                            ]
+                            st.session_state[f"sel_{_crit}"] = selected_metrics
+                            for _m in selected_metrics:
+                                _spec = (cfg_state[_crit].get(_m, {}) or {}) if isinstance(cfg_state.get(_crit), dict) else {}
+                                _mf = (_spec.get("mf", {}) or {}) if isinstance(_spec, dict) else {}
+                                try:
+                                    st.session_state[f"w_{_crit}_{_m}"] = float(_spec.get("w", 0.1))
+                                except Exception:
+                                    st.session_state[f"w_{_crit}_{_m}"] = 0.1
+                                try:
+                                    st.session_state[f"lo_{_crit}_{_m}"] = float(_mf.get("lo", 0.0))
+                                except Exception:
+                                    st.session_state[f"lo_{_crit}_{_m}"] = 0.0
+                                try:
+                                    st.session_state[f"mid_{_crit}_{_m}"] = float(_mf.get("mid", 0.0))
+                                except Exception:
+                                    st.session_state[f"mid_{_crit}_{_m}"] = 0.0
+                                try:
+                                    st.session_state[f"hi_{_crit}_{_m}"] = float(_mf.get("hi", 0.0))
+                                except Exception:
+                                    st.session_state[f"hi_{_crit}_{_m}"] = 0.0
+                                st.session_state[f"inv_{_crit}_{_m}"] = bool(_mf.get("invert", False))
+                                st.session_state[f"mft_{_crit}_{_m}"] = str(_mf.get("type", "tri")).lower()
+                                bom_val = _normalise_bom_value(_spec.get("bom"))
+                                bom_options = CRIT_BOM_OPTIONS.get(_crit, [])
+                                st.session_state[f"bom_{_crit}_{_m}"] = bom_val if bom_val in bom_options else "No BOM defined"
+                    except Exception:
+                        pass
+                    st.rerun()
+            except Exception as e:
+                st.error(f"Failed to load: {e}")

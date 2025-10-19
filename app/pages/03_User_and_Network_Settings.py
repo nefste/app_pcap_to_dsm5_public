@@ -1219,6 +1219,11 @@ if analysis_scope == "Days":
     desc = ", ".join(sorted({pd.to_datetime(d).strftime("%Y-%m-%d") for d in selected_days}))
 else:
     desc = ", ".join([f"{pd.to_datetime(w).strftime('%Y-%m-%d')}" for w in selected_weeks])
+if analysis_scope == "Weeks":
+    week_order = [pd.to_datetime(w).normalize() for w in selected_weeks]
+    week_order = list(dict.fromkeys(week_order))
+else:
+    week_order = []
 st.header(f"Traffic Overview — {analysis_scope}: {desc}")
 
 ov_tabs = st.tabs(["Packets", "Bytes", "Protocol mix", "Hourly heatmap", "Groups"])
@@ -1257,16 +1262,19 @@ with ov_tabs[0]:
 
     else:  # Weeks
         week_frames = []
-        for wk_start in sorted(df_all.get("WeekStart", []).unique()):
-            if pd.isna(wk_start): continue
-            wk_start = pd.to_datetime(wk_start)
+        missing_week_labels: list[str] = []
+        for wk_start in week_order:
+            label = f"Week of {wk_start.strftime('%Y-%m-%d')}"
             dfi = df_all[df_all["WeekStart"] == wk_start]
+            if dfi.empty:
+                missing_week_labels.append(label)
+                continue
             dfts = (dfi.set_index("Timestamp").assign(Packets=1)["Packets"]
                     .resample(RESAMPLE_FREQ).sum().reset_index())
             dff = ensure_full_minutes_range(dfts, wk_start, wk_start + pd.Timedelta(days=7), "Packets", fill_value=0)
             dff["MinuteOfWeek"] = ((dff["Timestamp"] - wk_start).dt.total_seconds() // 60).astype(int)
             dff["Hover"] = dff["Timestamp"].dt.strftime("%a %H:%M")
-            dff["Label"] = f"Week of {wk_start.strftime('%Y-%m-%d')}"
+            dff["Label"] = label
             week_frames.append(dff[["MinuteOfWeek","Packets","Hover","Label"]])
         df_packets_weeks = pd.concat(week_frames, ignore_index=True) if week_frames else pd.DataFrame()
 
@@ -1286,6 +1294,8 @@ with ov_tabs[0]:
                          tickvals=[i*1440 for i in range(0,7)],
                          ticktext=["Mon","Tue","Wed","Thu","Fri","Sat","Sun"])
         st.plotly_chart(fig, use_container_width=True, key=f"{key_prefix}_packets_weeks")
+        if missing_week_labels:
+            st.info("No traffic found for: " + ", ".join(missing_week_labels))
 
 # ---------- Bytes ----------
 with ov_tabs[1]:
@@ -1321,10 +1331,10 @@ with ov_tabs[1]:
 
         else:  # Weeks
             week_frames = []
-            for wk_start in sorted(df_all.get("WeekStart", []).unique()):
-                if pd.isna(wk_start): continue
-                wk_start = pd.to_datetime(wk_start)
+            for wk_start in week_order:
                 dfi = df_all[df_all["WeekStart"] == wk_start]
+                if dfi.empty:
+                    continue
                 dfts = (dfi.set_index("Timestamp")["Length"]
                         .resample(RESAMPLE_FREQ).sum().reset_index(name="Bytes"))
                 dff = ensure_full_minutes_range(dfts, wk_start, wk_start + pd.Timedelta(days=7), "Bytes", fill_value=0)
