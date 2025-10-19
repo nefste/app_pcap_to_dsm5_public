@@ -734,7 +734,7 @@ DEFAULT_CFG: Dict[str, Any] = {
 
 
 CRIT_DISPLAY = {
-    "C1": "C1 – Sleep disturbance",
+    "C1": "C1 - Depressed mood",
     "C2": "C2 – Loss of interest / anhedonia",
     "C3": "C3 – Appetite / weight change",
     "C4": "C4 – Sleep timing & duration",
@@ -1013,7 +1013,7 @@ st.write("---")
 st.subheader("FASL Configuration")
 
 CRIT_TABS = [
-    ("C1", "C1 – Sleep disturbance"),
+    ("C1", "C1 - Depressed mood"),
     ("C2", "C2 – Loss of interest / anhedonia"),
     ("C3", "C3 – Appetite / weight change"),
     ("C4", "C4 – Sleep timing & duration"),
@@ -1027,7 +1027,7 @@ CRIT_KEYS = [c for c, _ in CRIT_TABS]
 tabs = st.tabs([label for _, label in CRIT_TABS])
 
 CRIT_DISPLAY = {
-    "C1": "C1 – Sleep disturbance",
+    "C1": "C1 - Depressed mood",
     "C2": "C2 – Loss of interest / anhedonia",
     "C3": "C3 – Appetite / weight change",
     "C4": "C4 – Sleep timing & duration",
@@ -1335,7 +1335,20 @@ LABEL_MAP = {
 }
 
 
-
+def _plotly_chart_scaled(fig, width_scale: float = 1.0, **kwargs) -> None:
+    """Render Plotly chart with optional width scaling."""
+    try:
+        scale = float(width_scale)
+    except Exception:
+        scale = 1.0
+    scale = max(0.0, min(scale, 1.0))
+    if abs(scale - 1.0) < 1e-6 or scale <= 0.0:
+        st.plotly_chart(fig, **kwargs)
+        return
+    remainder = max(1e-3, 1.0 - scale)
+    cols = st.columns([scale, remainder])
+    with cols[0]:
+        st.plotly_chart(fig, **kwargs)
 
 
 def _add_tri_background(fig, lo, mid, hi, invert, y_min, y_max):
@@ -1356,9 +1369,8 @@ def _add_tri_background(fig, lo, mid, hi, invert, y_min, y_max):
         lo_draw = float(np.clip(lo_draw, y_min, y_max))
         mid_draw = float(np.clip(mid_draw, y_min, y_max))
         hi_draw = float(np.clip(hi_draw, y_min, y_max))
-    good = "rgba(34,197,94,0.15)"
-    bad = "rgba(239,68,68,0.12)"
-    accent_blue = "rgba(59,130,246,0.12)"
+    membership_fill = "rgba(239,68,68,0.18)"
+    outside_fill = "rgba(134,239,172,0.18)"
     span_lo = sorted((lo_draw, mid_draw))
     span_hi = sorted((mid_draw, hi_draw))
     if span_lo[0] != span_lo[1]:
@@ -1366,7 +1378,7 @@ def _add_tri_background(fig, lo, mid, hi, invert, y_min, y_max):
             y0=span_lo[0],
             y1=span_lo[1],
             line_width=0,
-            fillcolor=bad if invert else good,
+            fillcolor=membership_fill,
             layer="below",
         )
     if span_hi[0] != span_hi[1]:
@@ -1374,32 +1386,108 @@ def _add_tri_background(fig, lo, mid, hi, invert, y_min, y_max):
             y0=span_hi[0],
             y1=span_hi[1],
             line_width=0,
-            fillcolor=good if invert else bad,
+            fillcolor=membership_fill,
             layer="below",
         )
-    if invert:
-        if np.isfinite(y_max) and hi_draw < y_max:
-            fig.add_hrect(
-                y0=hi_draw,
-                y1=y_max,
-                line_width=0,
-                fillcolor=accent_blue,
-                layer="below",
-            )
-    else:
-        if np.isfinite(y_min) and lo_draw > y_min:
-            fig.add_hrect(
-                y0=y_min,
-                y1=lo_draw,
-                line_width=0,
-                fillcolor=accent_blue,
-                layer="below",
-            )
+    if not invert and np.isfinite(y_min) and np.isfinite(lo_draw) and lo_draw > y_min:
+        fig.add_hrect(
+            y0=y_min,
+            y1=lo_draw,
+            line_width=0,
+            fillcolor=outside_fill,
+            layer="below",
+        )
+    if invert and np.isfinite(y_max) and np.isfinite(hi_draw) and hi_draw < y_max:
+        fig.add_hrect(
+            y0=hi_draw,
+            y1=y_max,
+            line_width=0,
+            fillcolor=outside_fill,
+            layer="below",
+        )
     return mid_draw
 
+def _add_tri_markers(
+    fig,
+    lo,
+    mid,
+    hi,
+    orientation: str = "h",
+    labels: dict[str, str] | None = None,
+) -> None:
+    entries = (
+        ("lo", lo, "#0ea5e9"),
+        ("mid", mid, "#f59e0b"),
+        ("hi", hi, "#ef4444"),
+    )
+    processed: list[tuple[str, float, str, str]] = []
+    label_map = labels or {}
+    if orientation == "v":
+        priority = {"lo": 2, "mid": 1, "hi": 2}
+        for key, value, color in entries:
+            if not np.isfinite(value):
+                continue
+            val = float(value)
+            label_text = label_map.get(key, key)
+            replace_idx: int | None = None
+            for idx, (existing_key, existing_val, _, _) in enumerate(processed):
+                if np.isclose(existing_val, val, rtol=1e-9, atol=1e-9):
+                    if priority.get(key, 0) > priority.get(existing_key, 0):
+                        replace_idx = idx
+                    else:
+                        replace_idx = -1  # marker to skip replacement
+                    break
+            if replace_idx == -1:
+                continue
+            if replace_idx is None:
+                processed.append((key, val, color, label_text))
+            else:
+                processed[replace_idx] = (key, val, color, label_text)
+    else:
+        for key, value, color in entries:
+            if not np.isfinite(value):
+                continue
+            val = float(value)
+            label_text = label_map.get(key, key)
+            processed.append((key, val, color, label_text))
+
+    for _, val, color, label_text in processed:
+        if orientation == "h":
+            fig.add_hline(y=val, line_dash="dash", line_color=color)
+            fig.add_annotation(
+                x=1.0,
+                y=val,
+                xref="paper",
+                yref="y",
+                text=label_text,
+                showarrow=False,
+                font=dict(color=color, size=10),
+                xanchor="left",
+                xshift=-6,
+                align="left",
+            )
+        else:
+            fig.add_vline(x=val, line_dash="dash", line_color=color)
+            fig.add_annotation(
+                x=val,
+                y=1.02,
+                xref="x",
+                yref="paper",
+                text=label_text,
+                showarrow=False,
+                font=dict(color=color, size=10),
+                yanchor="bottom",
+            )
+
 def _boxplot_with_ranges(
-    df: pd.DataFrame, col: str, lo: float, mid: float, hi: float, invert: bool = False
-):
+    df: pd.DataFrame,
+    col: str,
+    lo: float,
+    mid: float,
+    hi: float,
+    invert: bool = False,
+    theta: float | None = None,
+) -> None:
     import plotly.express as px, plotly.graph_objects as go
 
     if col not in df.columns or df[col].dropna().empty:
@@ -1414,12 +1502,38 @@ def _boxplot_with_ranges(
     ymin = float(series.min())
     ymax = float(series.max())
     try:
-        mid_line = _add_tri_background(fig, lo, mid, hi, invert, ymin, ymax)
-        if mid_line is not None:
-            fig.add_hline(y=mid_line, line_dash="dot", line_color="gray")
+        _add_tri_background(fig, lo, mid, hi, invert, ymin, ymax)
+        _add_tri_markers(
+            fig,
+            lo,
+            mid,
+            hi,
+            orientation="h",
+            labels={"lo": "lo", "mid": "mid", "hi": "hi"},
+        )
+        theta_val = float(theta) if theta is not None and np.isfinite(theta) else None
+        if (
+            theta_val is not None
+            and np.isfinite(ymin)
+            and np.isfinite(ymax)
+            and ymin <= theta_val <= ymax
+        ):
+            fig.add_hline(y=theta_val, line_dash="dot", line_color="#6b7280")
+            fig.add_annotation(
+                x=1.0,
+                y=theta_val,
+                xref="paper",
+                yref="y",
+                text="\u03b8",
+                showarrow=False,
+                font=dict(color="#6b7280", size=10),
+                xanchor="left",
+                xshift=-6,
+                align="left",
+            )
     except Exception:
         pass
-    st.plotly_chart(fig, use_container_width=True)
+    _plotly_chart_scaled(fig, width_scale=0.9, use_container_width=True)
 
 
 
@@ -1433,6 +1547,7 @@ def _boxplot_with_ranges_marks(
     centers: tuple[float, float, float] | None = None,
     boundaries: tuple[float, float] | None = None,
     show_overlays: bool = True,
+    theta: float | None = None,
 ):
     import plotly.express as px, plotly.graph_objects as go
     if col not in df.columns or df[col].dropna().empty:
@@ -1447,9 +1562,35 @@ def _boxplot_with_ranges_marks(
     ymin = float(series.min())
     ymax = float(series.max())
     try:
-        mid_line = _add_tri_background(fig, lo, mid, hi, invert, ymin, ymax)
-        if mid_line is not None:
-            fig.add_hline(y=mid_line, line_dash="dot", line_color="gray")
+        _add_tri_background(fig, lo, mid, hi, invert, ymin, ymax)
+        _add_tri_markers(
+            fig,
+            lo,
+            mid,
+            hi,
+            orientation="h",
+            labels={"lo": "lo", "mid": "mid", "hi": "hi"},
+        )
+        theta_val = float(theta) if theta is not None and np.isfinite(theta) else None
+        if (
+            theta_val is not None
+            and np.isfinite(ymin)
+            and np.isfinite(ymax)
+            and ymin <= theta_val <= ymax
+        ):
+            fig.add_hline(y=theta_val, line_dash="dot", line_color="#6b7280")
+            fig.add_annotation(
+                x=1.0,
+                y=theta_val,
+                xref="paper",
+                yref="y",
+                text="θ",
+                showarrow=False,
+                font=dict(color="#6b7280", size=10),
+                xanchor="left",
+                xshift=-6,
+                align="left",
+            )
         if show_overlays:
             if boundaries is not None:
                 t12, t23 = float(boundaries[0]), float(boundaries[1])
@@ -1469,7 +1610,7 @@ def _boxplot_with_ranges_marks(
             fig.add_trace(tr)
     except Exception:
         pass
-    st.plotly_chart(fig, use_container_width=True)
+    _plotly_chart_scaled(fig, width_scale=0.9, use_container_width=True)
 
 
 
@@ -1492,21 +1633,35 @@ def _boxplot_membership(
     if mu_vals.empty:
         st.info("No valid values to normalize.")
         return
+    axis_label = LABEL_MAP.get(col, col)
     fig = px.box(mu_vals, points="all", range_y=[0, 1])
     fig.update_layout(title_text="")
     fig.update_xaxes(visible=False)
-    axis_label = LABEL_MAP.get(col, col)
-    fig.update_yaxes(title=axis_label)
-    fig.update_yaxes(range=[0, 1])
-    try:
-        good = "rgba(34,197,94,0.10)"; bad = "rgba(239,68,68,0.10)"
-        if theta is not None:
-            fig.add_hrect(y0=0, y1=float(theta), line_width=0, fillcolor=good, layer="below")
-            fig.add_hrect(y0=float(theta), y1=1, line_width=0, fillcolor=bad, layer="below")
-            fig.add_hline(y=float(theta), line_dash="dot", line_color="gray")
-    except Exception:
-        pass
-    st.plotly_chart(fig, use_container_width=True)
+    fig.update_yaxes(title=axis_label, range=[0, 1])
+    theta_val = float(theta) if theta is not None and np.isfinite(theta) else None
+    if theta_val is not None:
+        fill_top = float(np.clip(theta_val, 0.0, 1.0))
+        fig.add_hrect(
+            y0=0,
+            y1=fill_top,
+            line_width=0,
+            fillcolor="rgba(239,68,68,0.14)",
+            layer="below",
+        )
+        fig.add_hline(y=fill_top, line_dash="dot", line_color="#6b7280")
+        fig.add_annotation(
+            x=1.0,
+            y=fill_top,
+            xref="paper",
+            yref="y",
+            text="θ",
+            showarrow=False,
+            font=dict(color="#6b7280", size=10),
+            xanchor="left",
+            xshift=-6,
+            align="left",
+        )
+    _plotly_chart_scaled(fig, width_scale=0.9, use_container_width=True)
 
 
 def _membership_curve_chart(
@@ -1516,6 +1671,7 @@ def _membership_curve_chart(
     mid: float,
     hi: float,
     invert: bool = False,
+    theta: float | None = None,
 ) -> None:
     import numpy as np
     import plotly.graph_objects as go
@@ -1553,6 +1709,19 @@ def _membership_curve_chart(
     x_min -= margin
     x_max += margin
 
+    lo_draw = float(lo) if np.isfinite(lo) else x_min
+    hi_draw = float(hi) if np.isfinite(hi) else x_max
+    if np.isfinite(mid):
+        mid_draw = float(mid)
+    else:
+        mid_draw = float(
+            lo_draw + (hi_draw - lo_draw) / 2.0 if np.isfinite(hi_draw) and np.isfinite(lo_draw) else x_min
+        )
+    lo_draw = float(np.clip(lo_draw, x_min, x_max))
+    mid_draw = float(np.clip(mid_draw, x_min, x_max))
+    hi_draw = float(np.clip(hi_draw, x_min, x_max))
+    lo_draw, mid_draw, hi_draw = sorted((lo_draw, mid_draw, hi_draw))
+
     x_values = np.linspace(x_min, x_max, 200)
     y_values = [
         mf_tri(float(xv), float(lo), float(mid), float(hi), invert=bool(invert))
@@ -1563,46 +1732,140 @@ def _membership_curve_chart(
     y_axis_title = f"\u03BC_{mu_label}(x)"
 
     fig = go.Figure()
+    membership_fill = "rgba(239,68,68,0.18)"
+    outside_fill = "rgba(134,239,172,0.18)"
+    theta_val = float(theta) if theta is not None and np.isfinite(theta) else None
+    cap = float(np.clip(theta_val, 0.0, 1.0)) if theta_val is not None else 1.0
+    cap = max(0.0, float(cap))
+
+    def _add_band(x0: float, x1: float, color: str) -> None:
+        if cap <= 0.0:
+            return
+        if not (np.isfinite(x0) and np.isfinite(x1)):
+            return
+        start = float(np.clip(min(x0, x1), x_min, x_max))
+        end = float(np.clip(max(x0, x1), x_min, x_max))
+        if start >= end:
+            return
+        fig.add_shape(
+            type="rect",
+            x0=start,
+            x1=end,
+            y0=0.0,
+            y1=cap,
+            xref="x",
+            yref="y",
+            fillcolor=color,
+            line=dict(width=0),
+            layer="below",
+        )
+
+    if not invert and x_min < lo_draw:
+        _add_band(x_min, lo_draw, outside_fill)
+    if lo_draw < mid_draw:
+        _add_band(lo_draw, mid_draw, membership_fill)
+    if mid_draw < hi_draw:
+        _add_band(mid_draw, hi_draw, membership_fill)
+    if invert and hi_draw < x_max:
+        _add_band(hi_draw, x_max, outside_fill)
     fig.add_trace(
         go.Scatter(
             x=x_values,
             y=y_values,
             mode="lines",
             name="Membership",
-            line=dict(color="#2563eb"),
+            line=dict(color="#0ea5e9"),
         )
     )
 
+    scatter_x: list[float] = []
+    scatter_y: list[float] = []
     if not series.empty:
+        scatter_x = series.tolist()
         scatter_y = [
             mf_tri(float(val), float(lo), float(mid), float(hi), invert=bool(invert))
             for val in series
         ]
-        fig.add_trace(
-            go.Scatter(
-                x=series.tolist(),
-                y=scatter_y,
-                mode="markers",
-                name="Daily values",
-                marker=dict(size=6, color="#0ea5e9", opacity=0.6),
+        above_x: list[float] = []
+        above_y: list[float] = []
+        below_x: list[float] = []
+        below_y: list[float] = []
+        for x_val, y_val in zip(scatter_x, scatter_y):
+            if theta_val is not None and y_val > theta_val:
+                above_x.append(float(x_val))
+                above_y.append(float(y_val))
+            else:
+                below_x.append(float(x_val))
+                below_y.append(float(y_val))
+        if below_x:
+            fig.add_trace(
+                go.Scatter(
+                    x=below_x,
+                    y=below_y,
+                    mode="markers",
+                    marker=dict(size=6, color="#1d4ed8", opacity=0.85),
+                    showlegend=False,
+                )
             )
-        )
+        if above_x:
+            fig.add_trace(
+                go.Scatter(
+                    x=above_x,
+                    y=above_y,
+                    mode="markers",
+                    marker=dict(size=6, color="#60a5fa", opacity=0.95),
+                    showlegend=False,
+                )
+            )
 
-    for val, color, label in (
-        (lo, "#0ea5e9", "lo"),
-        (mid, "#f59e0b", "mid"),
-        (hi, "#ef4444", "hi"),
-    ):
-        if np.isfinite(val):
-            fig.add_vline(x=float(val), line_dash="dash", line_color=color)
-            fig.add_annotation(
-                x=float(val),
-                y=1.02,
-                text=label,
-                showarrow=False,
-                yanchor="bottom",
-                font=dict(color=color, size=10),
-            )
+    _add_tri_markers(fig, lo, mid, hi, orientation="v")
+
+    if theta_val is not None:
+        fig.add_hline(y=cap, line_dash="dot", line_color="#6b7280")
+        fig.add_annotation(
+            x=1.0,
+            y=cap,
+            xref="paper",
+            yref="y",
+            text="θ",
+            showarrow=False,
+            font=dict(color="#6b7280", size=10),
+            xanchor="left",
+            xshift=-6,
+            align="left",
+        )
+        if scatter_x:
+            threshold_x: list[float] = []
+            threshold_y: list[float] = []
+            for x_val, y_val in zip(scatter_x, scatter_y):
+                if y_val > theta_val:
+                    fig.add_annotation(
+                        x=float(x_val),
+                        y=cap,
+                        ax=float(x_val),
+                        ay=float(y_val),
+                        xref="x",
+                        yref="y",
+                        axref="x",
+                        ayref="y",
+                        showarrow=True,
+                        arrowhead=0,
+                        arrowsize=0.6,
+                        arrowwidth=1,
+                        arrowcolor="#6b7280",
+                    )
+                    threshold_x.append(float(x_val))
+                    threshold_y.append(cap)
+            if threshold_x:
+                fig.add_trace(
+                    go.Scatter(
+                        x=threshold_x,
+                        y=threshold_y,
+                        mode="markers",
+                        marker=dict(size=5, color="#1d4ed8"),
+                        showlegend=False,
+                    )
+                )
 
     fig.update_layout(
         title="",
@@ -1611,7 +1874,7 @@ def _membership_curve_chart(
     )
     fig.update_xaxes(title=axis_label)
     fig.update_yaxes(title=y_axis_title, range=[0, 1.05])
-    st.plotly_chart(fig, use_container_width=True)
+    _plotly_chart_scaled(fig, width_scale=0.9, use_container_width=True)
 
 
 def _mf_tri_latex(name: str, lo: float, mid: float, hi: float, invert: bool) -> str:
@@ -1876,7 +2139,7 @@ for idx, (crit, label) in enumerate(CRIT_TABS):
                                     pass
                             with c2d:
                                 try:
-                                    tab_raw, tab_norm, tab_membership = st.tabs(["Raw", "Normalized (mu)", "Membership"])
+                                    tab_raw, tab_norm, tab_membership = st.tabs(["Raw", "Normalised", "Membership"])
                                     with tab_raw:
                                         _boxplot_with_ranges_marks(
                                             ALL_DAILY,
@@ -1888,6 +2151,7 @@ for idx, (crit, label) in enumerate(CRIT_TABS):
                                             centers=(float(r.centers[0]), float(r.centers[1]), float(r.centers[2])),
                                             boundaries=(float(r.boundaries[0]), float(r.boundaries[1])),
                                             show_overlays=bool(show_ov),
+                                            theta=float(theta_default),
                                         )
                                     with tab_norm:
                                         _boxplot_membership(
@@ -1907,6 +2171,7 @@ for idx, (crit, label) in enumerate(CRIT_TABS):
                                             float(r.mid),
                                             float(r.hi if np.isfinite(r.hi) else r.mid),
                                             invert=bool(r.invert),
+                                            theta=float(theta_default),
                                         )
                                 except Exception:
                                     st.info("No values for plotting.")
@@ -1943,7 +2208,7 @@ for idx, (crit, label) in enumerate(CRIT_TABS):
             cfg_state[crit][k].setdefault("bom", "")
             cfg_state[crit][k]["bom"] = _normalise_bom_value(cfg_state[crit][k].get("bom"))
             with st.expander(f"**{k}**", expanded=False):
-                c1, c2, c3 = st.columns(3)
+                c1, c2, c3 = st.columns([1, 1, 2], gap="small")
                 with c1:
                     w = st.slider(
                         f"Weight – {k}", 0.0, 1.0, float(cfg_state[crit][k]["w"]), 0.05, key=f"w_{crit}_{k}"
@@ -2003,10 +2268,11 @@ for idx, (crit, label) in enumerate(CRIT_TABS):
                             _boxplot_with_ranges(
                                 ALL_DAILY,
                                 k,
-                                mf.get("lo", 0.0),
-                                mf.get("mid", 0.0),
-                                mf.get("hi", 0.0),
-                                mf.get("invert", False),
+                                float(mf.get("lo", 0.0)),
+                                float(mf.get("mid", 0.0)),
+                                float(mf.get("hi", 0.0)),
+                                invert=bool(mf.get("invert", False)),
+                                theta=float(theta_default),
                             )
                         with tab_norm:
                             _boxplot_membership(
@@ -2026,6 +2292,7 @@ for idx, (crit, label) in enumerate(CRIT_TABS):
                                 float(mf.get("mid", 0.0)),
                                 float(mf.get("hi", 0.0)),
                                 invert=bool(mf.get("invert", False)),
+                                theta=float(theta_default),
                             )
                     except Exception:
                         pass

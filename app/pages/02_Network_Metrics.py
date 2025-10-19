@@ -317,9 +317,8 @@ def _apply_tri_background(fig, lo, mid, hi, invert, y_min, y_max):
         lo_draw = float(np.clip(lo_draw, y_min, y_max))
         mid_draw = float(np.clip(mid_draw, y_min, y_max))
         hi_draw = float(np.clip(hi_draw, y_min, y_max))
-    good = "rgba(34,197,94,0.15)"
-    bad = "rgba(239,68,68,0.12)"
-    accent_blue = "rgba(59,130,246,0.12)"
+    membership_fill = "rgba(239,68,68,0.18)"
+    outside_fill = "rgba(134,239,172,0.18)"
     span_lo = sorted((lo_draw, mid_draw))
     span_hi = sorted((mid_draw, hi_draw))
     if span_lo[0] != span_lo[1]:
@@ -327,7 +326,7 @@ def _apply_tri_background(fig, lo, mid, hi, invert, y_min, y_max):
             y0=span_lo[0],
             y1=span_lo[1],
             line_width=0,
-            fillcolor=bad if invert else good,
+            fillcolor=membership_fill,
             layer="below",
         )
     if span_hi[0] != span_hi[1]:
@@ -335,27 +334,25 @@ def _apply_tri_background(fig, lo, mid, hi, invert, y_min, y_max):
             y0=span_hi[0],
             y1=span_hi[1],
             line_width=0,
-            fillcolor=good if invert else bad,
+            fillcolor=membership_fill,
             layer="below",
         )
-    if invert:
-        if np.isfinite(y_max) and hi_draw < y_max:
-            fig.add_hrect(
-                y0=hi_draw,
-                y1=y_max,
-                line_width=0,
-                fillcolor=accent_blue,
-                layer="below",
-            )
-    else:
-        if np.isfinite(y_min) and lo_draw > y_min:
-            fig.add_hrect(
-                y0=y_min,
-                y1=lo_draw,
-                line_width=0,
-                fillcolor=accent_blue,
-                layer="below",
-            )
+    if not invert and np.isfinite(y_min) and np.isfinite(lo_draw) and lo_draw > y_min:
+        fig.add_hrect(
+            y0=y_min,
+            y1=lo_draw,
+            line_width=0,
+            fillcolor=outside_fill,
+            layer="below",
+        )
+    if invert and np.isfinite(y_max) and np.isfinite(hi_draw) and hi_draw < y_max:
+        fig.add_hrect(
+            y0=hi_draw,
+            y1=y_max,
+            line_width=0,
+            fillcolor=outside_fill,
+            layer="below",
+        )
     fig.add_hline(y=mid_draw, line_dash="dot", line_color="gray")
 
 
@@ -1129,7 +1126,7 @@ def status_from_value(value, range_cfg: dict | None, default_status: str) -> str
             return "OK" if v >= ok_thr else "Caution"
     return default_status
 
-@st.dialog("Metric details", width="medium")
+@st.dialog("Metric details", width="large")
 def _show_metric_dialog():
     payload = st.session_state.get("__metric_dialog_payload__", {})
     if not payload:
@@ -1936,7 +1933,7 @@ def compute_and_render(tab_index: int, title: str, caption: str):
             criterion_code=CRITERION_CODES[tab_index],
         )
 
-compute_and_render(0, "Criterion 1 — Sleep disturbance", "Insomnia or hypersomnia, nearly every day.")
+compute_and_render(0, "Criterion 1 - Depressed mood", "Insomnia or hypersomnia, nearly every day.")
 compute_and_render(1, "Criterion 2 — Loss of interest / anhedonia", "Markedly diminished interest or pleasure.")
 compute_and_render(2, "Criterion 3 — Appetite / weight change", "Significant weight loss/gain or appetite change.")
 compute_and_render(3, "Criterion 4 — Sleep timing & duration", "Insomnia or hypersomnia proxies.")
