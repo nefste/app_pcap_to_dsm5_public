@@ -675,7 +675,8 @@ with col_s_left:
     cached_days = days_cache.get(selection_key)
     if cached_days:
         days = [pd.to_datetime(d).normalize() for d in cached_days]
-        st.success(f"Found {len(days)} day(s). (session cache)")
+        with st.status("Loading cached day index…", expanded=False) as s_cached:
+            s_cached.update(label=f"Found {len(days)} day(s). (session cache)", state="complete")
     else:
         with st.status("Indexing available days for the current selection…", expanded=False) as s1:
             days = available_days_for(selected_base_names)
@@ -696,7 +697,11 @@ with col_s_right:
     cached_df = daily_cache.get(selection_key)
     if cached_df is not None and not cached_df.empty:
         ALL_DAILY = cached_df.copy()
-        st.success(f"DONE: {len(ALL_DAILY)} day(s) ready (session cache).")
+        with st.status("Loading cached day metrics…", expanded=False) as s_cached_daily:
+            s_cached_daily.update(
+                label=f"DONE: {len(ALL_DAILY)} day(s) ready (session cache).",
+                state="complete",
+            )
     else:
         with st.status(
             "Building per-day base features (ALL_DAILY)…", expanded=False
@@ -1166,6 +1171,51 @@ with st.container():
     except Exception:
         pass
 
+# -------------------------- Evaluate & Visualize ------------------------------
+
+# Time series (below gauges, full width) in a bordered container
+with st.container(border=True):
+    try:
+        import plotly.express as px
+
+        melted = DF_L.melt(id_vars=["Date"], var_name="Criterion", value_name="Likelihood")
+        try:
+            melted["Code"] = melted["Criterion"].str.replace("L_", "", regex=False)
+            melted["Display"] = melted["Code"].map(CRIT_DISPLAY).fillna(melted["Code"])
+        except Exception:
+            melted["Display"] = melted["Criterion"]
+        fig = px.line(
+            melted,
+            x="Date",
+            y="Likelihood",
+            color="Display",
+            title="Criterion likelihoods over time",
+        )
+        fig.update_yaxes(range=[0, 1])
+        fig.add_hrect(
+            y0=0,
+            y1=theta_default,
+            line_width=0,
+            fillcolor="rgba(34,197,94,0.10)",
+            layer="below",
+        )
+        fig.add_hrect(
+            y0=theta_default,
+            y1=1,
+            line_width=0,
+            fillcolor="rgba(239,68,68,0.10)",
+            layer="below",
+        )
+        fig.add_hline(y=theta_default, line_dash="dot", line_color="gray")
+        st.plotly_chart(fig, use_container_width=True, key="crit_ts")
+        # Popover placed below the time series plot
+        try:
+            with st.popover("Recent per-day evaluations"):
+                st.dataframe(DF_L.tail(30), use_container_width=True)
+        except Exception:
+            pass
+    except Exception:
+        pass
 
 
 st.write("---")
@@ -2468,62 +2518,12 @@ for idx, (crit, label) in enumerate(CRIT_TABS):
 
 
 
-# -------------------------- Evaluate & Visualize ------------------------------
-
 # Show guidance if no per-criterion model configuration exists yet
 _has_model_cfg = any(
     isinstance(cfg_state.get(c), dict) and len(cfg_state.get(c)) > 0 for c in CRIT_KEYS
 )
 if not _has_model_cfg:
     st.info('Please create a model configuration or upload a configuration in JSON format.')
-
-
-# Time series (bottom, full width) in a bordered container
-with st.container(border=True):
-    try:
-        import plotly.express as px
-
-        melted = DF_L.melt(id_vars=["Date"], var_name="Criterion", value_name="Likelihood")
-        try:
-            melted["Code"] = melted["Criterion"].str.replace("L_", "", regex=False)
-            melted["Display"] = melted["Code"].map(CRIT_DISPLAY).fillna(melted["Code"])
-        except Exception:
-            melted["Display"] = melted["Criterion"]
-        fig = px.line(
-            melted,
-            x="Date",
-            y="Likelihood",
-            color="Display",
-            title="Criterion likelihoods over time",
-        )
-        fig.update_yaxes(range=[0, 1])
-        fig.add_hrect(
-            y0=0,
-            y1=theta_default,
-            line_width=0,
-            fillcolor="rgba(34,197,94,0.10)",
-            layer="below",
-        )
-        fig.add_hrect(
-            y0=theta_default,
-            y1=1,
-            line_width=0,
-            fillcolor="rgba(239,68,68,0.10)",
-            layer="below",
-        )
-        fig.add_hline(y=theta_default, line_dash="dot", line_color="gray")
-        st.plotly_chart(fig, use_container_width=True, key="crit_ts")
-        # Popover placed below the time series plot
-        try:
-            with st.popover("Recent per-day evaluations"):
-                st.dataframe(DF_L.tail(30), use_container_width=True)
-        except Exception:
-            pass
-    except Exception:
-        pass
-
-
-
 
 
 st.write("")
