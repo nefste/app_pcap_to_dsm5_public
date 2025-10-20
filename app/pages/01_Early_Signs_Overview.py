@@ -152,6 +152,57 @@ def partition_file_to_start_dt(path: str):
         return None
 
 
+def _read_parquet_with_pyarrow(fp: str) -> pd.DataFrame | None:
+    try:
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+    except Exception:
+        return None
+
+    try:
+        pf = pq.ParquetFile(fp)
+    except Exception:
+        return None
+
+    tables = []
+    for i in range(pf.num_row_groups):
+        try:
+            tables.append(pf.read_row_group(i))
+        except Exception:
+            continue
+    if not tables:
+        return None
+    try:
+        return pa.concat_tables(tables, promote=True).to_pandas()
+    except Exception:
+        return None
+
+
+def _read_parquet_with_fastparquet(fp: str) -> pd.DataFrame | None:
+    try:
+        import fastparquet
+    except Exception:
+        return None
+    try:
+        pf = fastparquet.ParquetFile(fp)
+        return pf.to_pandas()
+    except Exception:
+        return None
+
+
+def _load_parquet_file(fp: str) -> pd.DataFrame | None:
+    try:
+        return pd.read_parquet(fp)
+    except Exception:
+        pass
+
+    df = _read_parquet_with_pyarrow(fp)
+    if df is not None:
+        return df
+
+    return _read_parquet_with_fastparquet(fp)
+
+
 def load_day_dataframe(base_name: str, day) -> pd.DataFrame:
     day = pd.to_datetime(day).normalize()
     next_day = day + pd.Timedelta(days=1)
@@ -164,24 +215,9 @@ def load_day_dataframe(base_name: str, day) -> pd.DataFrame:
         return pd.DataFrame(columns=["Timestamp"])
     dfs: List[pd.DataFrame] = []
     for fp in chosen:
-        try:
-            df = pd.read_parquet(fp)
-        except Exception:
-            try:
-                import pyarrow.parquet as pq, pyarrow as pa
-
-                pf = pq.ParquetFile(fp)
-                tabs = []
-                for i in range(pf.num_row_groups):
-                    try:
-                        tabs.append(pf.read_row_group(i))
-                    except Exception:
-                        pass
-                if not tabs:
-                    continue
-                df = pa.concat_tables(tabs, promote=True).to_pandas()
-            except Exception:
-                continue
+        df = _load_parquet_file(fp)
+        if df is None:
+            continue
         # derive Timestamp if only Date/Hour present
         if "Timestamp" not in df.columns and {"Date", "Hour"}.issubset(df.columns):
             df["Timestamp"] = pd.to_datetime(df["Date"].astype(str)) + pd.to_timedelta(
