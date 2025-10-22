@@ -823,6 +823,26 @@ cfg_state.setdefault("N", 10)
 cfg_state.setdefault("theta", 0.7)
 cfg_state.setdefault("tau", 0.7)
 cfg_state.setdefault("core_symptoms", ["C2"])
+st.session_state.setdefault("fasl_gate_tau", float(cfg_state.get("tau", 0.7)))
+st.session_state.setdefault("fasl_tau_slider_keys", [])
+
+
+def _sync_tau_slider_state(changed_key: str) -> None:
+    """Keep all tau sliders in sync and update the shared configuration value."""
+    try:
+        new_value = float(st.session_state.get(changed_key))
+    except (TypeError, ValueError):
+        return
+    st.session_state["fasl_gate_tau"] = new_value
+    try:
+        cfg_state["tau"] = float(new_value)
+    except Exception:
+        cfg_state["tau"] = new_value
+    keys = list(st.session_state.get("fasl_tau_slider_keys", []))
+    for key in keys:
+        if key == changed_key:
+            continue
+        st.session_state[key] = new_value
 
 # Auto-load default FASL config once per session when opening this page
 try:
@@ -850,6 +870,7 @@ try:
             st.session_state["fasl_gate_N"] = int(cfg_state.get("N", 10))
             st.session_state["fasl_gate_theta"] = float(cfg_state.get("theta", 0.7))
             st.session_state["fasl_gate_tau"] = float(cfg_state.get("tau", 0.7))
+            st.session_state["fasl_tau_slider_keys"] = []
             st.session_state["fasl_gate_core"] = list(cfg_state.get("core_symptoms", ["C2"]))
             # Do not set per-metric widget keys here; their 'value=' params read from cfg_state on first render
             try:
@@ -973,16 +994,6 @@ with st.sidebar:
         help="Minimum number of days within the last M days where L_k ≥ θ to mark a criterion as present.",
     )
     _register_widget_change("N: days ≥ θ", "fasl_gate_N", gate_need)
-    tau_default = st.slider(
-        "\u03c4: metric threshold",
-        min_value=0.0,
-        max_value=1.0,
-        value=float(cfg_state.get("tau", cfg_state.get("theta", 0.7))),
-        key="fasl_gate_tau",
-        step=0.01,
-        help="Membership level used when highlighting metric-level alerts and visuals.",
-    )
-    _register_widget_change("\\u03c4: metric threshold", "fasl_gate_tau", tau_default, formatter=lambda v: f"{float(v):.2f}")
     theta_default = st.slider(
         "θ: criterion present threshold",
         min_value=0.0,
@@ -1003,7 +1014,7 @@ with st.sidebar:
     _register_widget_change("Core symptoms", "fasl_gate_core", core_criteria)
     cfg_state["M"] = int(gate_window)
     cfg_state["N"] = int(gate_need)
-    cfg_state["tau"] = float(tau_default)
+    cfg_state["tau"] = float(st.session_state.get("fasl_gate_tau", cfg_state.get("tau", cfg_state.get("theta", 0.7))))
     cfg_state["theta"] = float(theta_default)
     cfg_state["core_symptoms"] = core_criteria
     refresh_requested = st.button(
@@ -1011,6 +1022,9 @@ with st.sidebar:
         key="fasl_refresh_cache",
         help="Drop cached ALL_DAILY data and rebuild from source files.",
     )
+
+tau_current = float(st.session_state.get("fasl_gate_tau", cfg_state.get("tau", cfg_state.get("theta", 0.7))))
+cfg_state["tau"] = float(tau_current)
 
 def _cache_key_for_selection(items: list[str]) -> str:
     return hashlib.md5("|".join(sorted(items)).encode("utf-8")).hexdigest()
@@ -2899,6 +2913,29 @@ def render_metric_fragment(
         param_defs = _mf_param_defs(selected_type)
         marker_labels = _mf_marker_labels(selected_type)
         with c2:
+            tau_slider_key = f"fasl_gate_tau_{crit}_{metric}"
+            tau_keys = st.session_state.get("fasl_tau_slider_keys")
+            if isinstance(tau_keys, list):
+                if tau_slider_key not in tau_keys:
+                    tau_keys.append(tau_slider_key)
+            else:
+                st.session_state["fasl_tau_slider_keys"] = [tau_slider_key]
+            st.session_state[tau_slider_key] = float(tau_val)
+            tau_widget_value = st.slider(
+                "\u03c4: metric threshold",
+                min_value=0.0,
+                max_value=1.0,
+                value=float(st.session_state.get(tau_slider_key, float(tau_val))),
+                step=0.01,
+                key=tau_slider_key,
+                help="Membership level used when highlighting metric-level alerts and visuals.",
+                on_change=_sync_tau_slider_state,
+                kwargs={"changed_key": tau_slider_key},
+            )
+            _register_widget_change("\\u03c4: metric threshold", "fasl_gate_tau", tau_widget_value, formatter=lambda v: f"{float(v):.2f}")
+            st.session_state["fasl_gate_tau"] = float(tau_widget_value)
+            cfg_state["tau"] = float(tau_widget_value)
+            tau_val = float(st.session_state.get("fasl_gate_tau", tau_widget_value))
             param_values: dict[str, float] = {}
             for param in param_defs:
                 key_name = param.get("key")
@@ -3271,7 +3308,7 @@ for idx, (crit, label) in enumerate(CRIT_TABS):
                                                 centers=(float(r.centers[0]), float(r.centers[1]), float(r.centers[2])),
                                                 boundaries=(float(r.boundaries[0]), float(r.boundaries[1])),
                                                 show_overlays=bool(show_ov),
-                                                theta=float(tau_default),
+                                                theta=float(tau_current),
                                             )
                                         with tab_time:
                                             _time_series_with_ranges(
@@ -3292,7 +3329,7 @@ for idx, (crit, label) in enumerate(CRIT_TABS):
                                             float(r.hi if np.isfinite(r.hi) else r.mid),
                                             mf_type="tri",
                                             invert=bool(r.invert),
-                                            theta=float(tau_default),
+                                            theta=float(tau_current),
                                         )
                                     with tab_membership:
                                         tab_func, tab_time = st.tabs(["Function", "Over time"])
@@ -3305,7 +3342,7 @@ for idx, (crit, label) in enumerate(CRIT_TABS):
                                                 float(r.hi if np.isfinite(r.hi) else r.mid),
                                                 mf_type="tri",
                                                 invert=bool(r.invert),
-                                                theta=float(tau_default),
+                                                theta=float(tau_current),
                                             )
                                         with tab_time:
                                             _membership_time_series(
@@ -3316,7 +3353,7 @@ for idx, (crit, label) in enumerate(CRIT_TABS):
                                                 float(r.hi if np.isfinite(r.hi) else r.mid),
                                                 mf_type="tri",
                                                 invert=bool(r.invert),
-                                                theta=float(tau_default),
+                                                theta=float(tau_current),
                                             )
                                 except Exception:
                                     st.info("No values for plotting.")
@@ -3371,7 +3408,7 @@ for idx, (crit, label) in enumerate(CRIT_TABS):
                 k,
                 _cfg_signature(crit, k),
                 ALL_DAILY_TOKEN,
-                tau_default,
+                tau_current,
             )
 _has_model_cfg = any(
     isinstance(cfg_state.get(c), dict) and len(cfg_state.get(c)) > 0 for c in CRIT_KEYS
@@ -3441,6 +3478,7 @@ with st.container(border=True):
                         st.session_state["fasl_gate_theta"] = float(cfg_state.get("theta", 0.7))
                         st.session_state["fasl_gate_tau"] = float(cfg_state.get("tau", 0.7))
                         st.session_state["fasl_gate_core"] = list(cfg_state.get("core_symptoms", ["C2"]))
+                        st.session_state["fasl_tau_slider_keys"] = []
                         for _crit in CRIT_KEYS:
                             selected_metrics = [
                                 m for m in cfg_state.get(_crit, {}).keys() if m in ALL_METRIC_OPTIONS.get(_crit, [])
@@ -3458,6 +3496,7 @@ with st.container(border=True):
                                 bom_val = _normalise_bom_value(_spec.get("bom"))
                                 bom_options = CRIT_BOM_OPTIONS.get(_crit, [])
                                 st.session_state[f"bom_{_crit}_{_m}"] = bom_val if bom_val in bom_options else "No BOM defined"
+                                st.session_state[f"fasl_gate_tau_{_crit}_{_m}"] = float(st.session_state.get("fasl_gate_tau", cfg_state.get("tau", 0.7)))
                     except Exception:
                         pass
                     st.rerun()
@@ -3560,7 +3599,7 @@ with st.expander("Per-criterion contribution over time", expanded=False):
             crit,
             _cfg_signature(crit),
             ALL_DAILY_TOKEN,
-            float(tau_default),
+            float(tau_current),
         )
 
 _finalize_change_tracker()
