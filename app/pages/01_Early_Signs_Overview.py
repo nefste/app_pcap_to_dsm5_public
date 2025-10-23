@@ -821,9 +821,9 @@ cfg_state = st.session_state.setdefault("fasl_cfg", {})
 cfg_state.setdefault("M", 14)
 cfg_state.setdefault("N", 10)
 cfg_state.setdefault("theta", 0.7)
-cfg_state.setdefault("tau", 0.7)
+cfg_state.setdefault("tau", 1)
 cfg_state.setdefault("core_symptoms", ["C2"])
-st.session_state.setdefault("fasl_gate_tau", float(cfg_state.get("tau", 0.7)))
+st.session_state.setdefault("fasl_gate_tau", float(cfg_state.get("tau", 1)))
 st.session_state.setdefault("fasl_tau_slider_keys", [])
 
 
@@ -863,13 +863,13 @@ try:
             cfg_state.setdefault("M", 14)
             cfg_state.setdefault("N", 10)
             cfg_state.setdefault("theta", 0.7)
-            cfg_state.setdefault("tau", 0.7)
+            cfg_state.setdefault("tau", 1)
             cfg_state.setdefault("core_symptoms", ["C2"])
             # Seed widget state so sidebar uses loaded values immediately
             st.session_state["fasl_gate_M"] = int(cfg_state.get("M", 14))
             st.session_state["fasl_gate_N"] = int(cfg_state.get("N", 10))
             st.session_state["fasl_gate_theta"] = float(cfg_state.get("theta", 0.7))
-            st.session_state["fasl_gate_tau"] = float(cfg_state.get("tau", 0.7))
+            st.session_state["fasl_gate_tau"] = float(cfg_state.get("tau", 1))
             st.session_state["fasl_tau_slider_keys"] = []
             st.session_state["fasl_gate_core"] = list(cfg_state.get("core_symptoms", ["C2"]))
             # Do not set per-metric widget keys here; their 'value=' params read from cfg_state on first render
@@ -1014,7 +1014,7 @@ with st.sidebar:
     _register_widget_change("Core symptoms", "fasl_gate_core", core_criteria)
     cfg_state["M"] = int(gate_window)
     cfg_state["N"] = int(gate_need)
-    cfg_state["tau"] = float(st.session_state.get("fasl_gate_tau", cfg_state.get("tau", cfg_state.get("theta", 0.7))))
+    cfg_state["tau"] = float(st.session_state.get("fasl_gate_tau", cfg_state.get("tau", 1)))
     cfg_state["theta"] = float(theta_default)
     cfg_state["core_symptoms"] = core_criteria
     refresh_requested = st.button(
@@ -1023,7 +1023,7 @@ with st.sidebar:
         help="Drop cached ALL_DAILY data and rebuild from source files.",
     )
 
-tau_current = float(st.session_state.get("fasl_gate_tau", cfg_state.get("tau", cfg_state.get("theta", 0.7))))
+tau_current = float(st.session_state.get("fasl_gate_tau", cfg_state.get("tau", 1)))
 cfg_state["tau"] = float(tau_current)
 
 def _cache_key_for_selection(items: list[str]) -> str:
@@ -1195,7 +1195,7 @@ DEFAULT_CFG: Dict[str, Any] = {
     "M": 14,
     "N": 10,
     "theta": 0.7,
-    "tau": 0.7,
+    "tau": 1.0,
     "core_symptoms": ["C2"],
     # C1
     "C1": {
@@ -2011,6 +2011,22 @@ def _plotly_chart_scaled(fig, width_scale: float = 1.0, **kwargs) -> None:
         st.plotly_chart(fig, **kwargs)
 
 
+def _resolve_axis_bounds(values: list[float | None], pad_ratio: float = 0.05) -> tuple[float, float]:
+    """Expand plot bounds so threshold bands remain visible."""
+    finite_vals = [float(v) for v in values if v is not None and np.isfinite(v)]
+    if not finite_vals:
+        return (-1.0, 1.0)
+    lower = min(finite_vals)
+    upper = max(finite_vals)
+    if math.isclose(lower, upper, rel_tol=1e-9, abs_tol=1e-9):
+        baseline = abs(lower) if abs(lower) > 1e-6 else 1.0
+        lower -= baseline * 0.5
+        upper += baseline * 0.5
+    span = upper - lower
+    pad = span * pad_ratio if span > 0 else max(1.0, abs(lower) * pad_ratio)
+    return (lower - pad, upper + pad)
+
+
 def _add_tri_background(fig, lo, mid, hi, invert, y_min, y_max):
     import math
     vals = (lo, mid, hi)
@@ -2031,20 +2047,12 @@ def _add_tri_background(fig, lo, mid, hi, invert, y_min, y_max):
         hi_draw = float(np.clip(hi_draw, y_min, y_max))
     membership_fill = "rgba(239,68,68,0.18)"
     outside_fill = "rgba(134,239,172,0.18)"
-    span_lo = sorted((lo_draw, mid_draw))
-    span_hi = sorted((mid_draw, hi_draw))
-    if span_lo[0] != span_lo[1]:
+    left_bound = min(lo_draw, hi_draw)
+    right_bound = max(lo_draw, hi_draw)
+    if right_bound > left_bound:
         fig.add_hrect(
-            y0=span_lo[0],
-            y1=span_lo[1],
-            line_width=0,
-            fillcolor=membership_fill,
-            layer="below",
-        )
-    if span_hi[0] != span_hi[1]:
-        fig.add_hrect(
-            y0=span_hi[0],
-            y1=span_hi[1],
+            y0=left_bound,
+            y1=right_bound,
             line_width=0,
             fillcolor=membership_fill,
             layer="below",
@@ -2162,8 +2170,9 @@ def _boxplot_with_ranges(
     fig.update_yaxes(title=axis_label)
     ymin = float(series.min())
     ymax = float(series.max())
+    axis_min, axis_max = _resolve_axis_bounds([ymin, ymax, lo, mid, hi])
     try:
-        _add_tri_background(fig, lo, mid, hi, invert, ymin, ymax)
+        _add_tri_background(fig, lo, mid, hi, invert, axis_min, axis_max)
         _add_tri_markers(
             fig,
             lo,
@@ -2175,9 +2184,9 @@ def _boxplot_with_ranges(
         theta_val = float(theta) if theta is not None and np.isfinite(theta) else None
         if (
             theta_val is not None
-            and np.isfinite(ymin)
-            and np.isfinite(ymax)
-            and ymin <= theta_val <= ymax
+            and np.isfinite(axis_min)
+            and np.isfinite(axis_max)
+            and axis_min <= theta_val <= axis_max
         ):
             fig.add_hline(y=theta_val, line_dash="dot", line_color="#6b7280")
             fig.add_annotation(
@@ -2194,6 +2203,7 @@ def _boxplot_with_ranges(
             )
     except Exception:
         pass
+    fig.update_yaxes(range=[axis_min, axis_max])
     _plotly_chart_scaled(fig, width_scale=0.9, use_container_width=True)
 
 
@@ -2223,8 +2233,19 @@ def _boxplot_with_ranges_marks(
     fig.update_yaxes(title=axis_label)
     ymin = float(series.min())
     ymax = float(series.max())
+    axis_min, axis_max = _resolve_axis_bounds(
+        [
+            ymin,
+            ymax,
+            lo,
+            mid,
+            hi,
+            *(centers or ()),
+            *(boundaries or ()),
+        ]
+    )
     try:
-        _add_tri_background(fig, lo, mid, hi, invert, ymin, ymax)
+        _add_tri_background(fig, lo, mid, hi, invert, axis_min, axis_max)
         _add_tri_markers(
             fig,
             lo,
@@ -2236,9 +2257,9 @@ def _boxplot_with_ranges_marks(
         theta_val = float(theta) if theta is not None and np.isfinite(theta) else None
         if (
             theta_val is not None
-            and np.isfinite(ymin)
-            and np.isfinite(ymax)
-            and ymin <= theta_val <= ymax
+            and np.isfinite(axis_min)
+            and np.isfinite(axis_max)
+            and axis_min <= theta_val <= axis_max
         ):
             fig.add_hline(y=theta_val, line_dash="dot", line_color="#6b7280")
             fig.add_annotation(
@@ -2272,6 +2293,7 @@ def _boxplot_with_ranges_marks(
             fig.add_trace(tr)
     except Exception:
         pass
+    fig.update_yaxes(range=[axis_min, axis_max])
     _plotly_chart_scaled(fig, width_scale=0.9, use_container_width=True)
 
 
@@ -2319,18 +2341,15 @@ def _time_series_with_ranges(
     )
     ymin = float(values.min())
     ymax = float(values.max())
-    if ymin == ymax:
-        delta = 1.0 if not np.isfinite(ymin) else max(1.0, abs(ymin) * 0.1 or 1.0)
-        ymin -= delta
-        ymax += delta
+    axis_min, axis_max = _resolve_axis_bounds([ymin, ymax, lo, mid, hi, theta])
     try:
-        _add_tri_background(fig, lo, mid, hi, invert, ymin, ymax)
+        _add_tri_background(fig, lo, mid, hi, invert, axis_min, axis_max)
         theta_val = float(theta) if theta is not None and np.isfinite(theta) else None
         if (
             theta_val is not None
-            and np.isfinite(ymin)
-            and np.isfinite(ymax)
-            and ymin <= theta_val <= ymax
+            and np.isfinite(axis_min)
+            and np.isfinite(axis_max)
+            and axis_min <= theta_val <= axis_max
         ):
             fig.add_hline(y=theta_val, line_dash="dot", line_color="#6b7280")
             fig.add_annotation(
@@ -2354,6 +2373,7 @@ def _time_series_with_ranges(
         xaxis_title="Date",
         yaxis_title=axis_label,
     )
+    fig.update_yaxes(range=[axis_min, axis_max])
     fig.update_xaxes(type="date")
     _plotly_chart_scaled(fig, width_scale=0.9, use_container_width=True)
 
@@ -2586,10 +2606,10 @@ def _membership_curve_chart(
         mid_draw = float(
             lo_draw + (hi_draw - lo_draw) / 2.0 if np.isfinite(hi_draw) and np.isfinite(lo_draw) else x_min
         )
-    lo_draw = float(np.clip(lo_draw, x_min, x_max))
-    mid_draw = float(np.clip(mid_draw, x_min, x_max))
-    hi_draw = float(np.clip(hi_draw, x_min, x_max))
-    lo_draw, mid_draw, hi_draw = sorted((lo_draw, mid_draw, hi_draw))
+    lo_clipped = float(np.clip(lo_draw, x_min, x_max))
+    mid_clipped = float(np.clip(mid_draw, x_min, x_max))
+    hi_clipped = float(np.clip(hi_draw, x_min, x_max))
+    left_bound, _, right_bound = sorted((lo_clipped, mid_clipped, hi_clipped))
 
     tau_cap = None
     if theta is not None and np.isfinite(theta):
@@ -2642,14 +2662,12 @@ def _membership_curve_chart(
             layer="below",
         )
 
-    if not invert and x_min < lo_draw:
-        _add_band(x_min, lo_draw, outside_fill)
-    if lo_draw < mid_draw:
-        _add_band(lo_draw, mid_draw, membership_fill)
-    if mid_draw < hi_draw:
-        _add_band(mid_draw, hi_draw, membership_fill)
-    if invert and hi_draw < x_max:
-        _add_band(hi_draw, x_max, outside_fill)
+    if not invert and x_min < lo_clipped:
+        _add_band(x_min, lo_clipped, outside_fill)
+    if invert and hi_clipped < x_max:
+        _add_band(hi_clipped, x_max, outside_fill)
+    if right_bound > left_bound:
+        _add_band(left_bound, right_bound, membership_fill)
     fig.add_trace(
         go.Scatter(
             x=x_values,
@@ -2913,14 +2931,17 @@ def render_metric_fragment(
         param_defs = _mf_param_defs(selected_type)
         marker_labels = _mf_marker_labels(selected_type)
         with c2:
+            tau_val = float(st.session_state.get("fasl_gate_tau", tau_val))
             tau_slider_key = f"fasl_gate_tau_{crit}_{metric}"
             tau_keys = st.session_state.get("fasl_tau_slider_keys")
             if isinstance(tau_keys, list):
-                if tau_slider_key not in tau_keys:
-                    tau_keys.append(tau_slider_key)
+                tau_keys = list(tau_keys)
             else:
-                st.session_state["fasl_tau_slider_keys"] = [tau_slider_key]
-            st.session_state[tau_slider_key] = float(tau_val)
+                tau_keys = []
+            if tau_slider_key not in tau_keys:
+                tau_keys.append(tau_slider_key)
+            st.session_state["fasl_tau_slider_keys"] = tau_keys
+            st.session_state.setdefault(tau_slider_key, float(tau_val))
             tau_widget_value = st.slider(
                 "\u03c4: metric threshold",
                 min_value=0.0,
@@ -3476,7 +3497,7 @@ with st.container(border=True):
                         st.session_state["fasl_gate_M"] = int(cfg_state.get("M", 14))
                         st.session_state["fasl_gate_N"] = int(cfg_state.get("N", 10))
                         st.session_state["fasl_gate_theta"] = float(cfg_state.get("theta", 0.7))
-                        st.session_state["fasl_gate_tau"] = float(cfg_state.get("tau", 0.7))
+                        st.session_state["fasl_gate_tau"] = float(cfg_state.get("tau", 1))
                         st.session_state["fasl_gate_core"] = list(cfg_state.get("core_symptoms", ["C2"]))
                         st.session_state["fasl_tau_slider_keys"] = []
                         for _crit in CRIT_KEYS:
@@ -3496,7 +3517,7 @@ with st.container(border=True):
                                 bom_val = _normalise_bom_value(_spec.get("bom"))
                                 bom_options = CRIT_BOM_OPTIONS.get(_crit, [])
                                 st.session_state[f"bom_{_crit}_{_m}"] = bom_val if bom_val in bom_options else "No BOM defined"
-                                st.session_state[f"fasl_gate_tau_{_crit}_{_m}"] = float(st.session_state.get("fasl_gate_tau", cfg_state.get("tau", 0.7)))
+                                st.session_state[f"fasl_gate_tau_{_crit}_{_m}"] = float(st.session_state.get("fasl_gate_tau", cfg_state.get("tau", 1)))
                     except Exception:
                         pass
                     st.rerun()
