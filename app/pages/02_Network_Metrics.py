@@ -279,23 +279,16 @@ def _safe_float_config(value) -> float | None:
 def _get_fasl_membership(criterion: str | None, metric_key: str | None) -> tuple[float, float, float, bool]:
     if not criterion or not metric_key:
         return 0.0, 0.0, 0.0, False
-    try:
-        spec = _ensure_fasl_metric_entry(criterion, metric_key)
-    except Exception:
-        cfg = st.session_state.setdefault('fasl_cfg', {})
-        crit_bucket = cfg.get(criterion, {}) if isinstance(cfg, dict) else {}
-        spec = crit_bucket.get(metric_key, {}) if isinstance(crit_bucket, dict) else {}
-        mf = spec.get('mf') if isinstance(spec, dict) else {}
-        lo = _safe_float_config((mf or {}).get('lo')) or 0.0
-        mid = _safe_float_config((mf or {}).get('mid')) or 0.0
-        hi = _safe_float_config((mf or {}).get('hi')) or 0.0
-        invert = bool((mf or {}).get('invert', False))
-        return lo, mid, hi, invert
-    mf = spec.get('mf') if isinstance(spec, dict) else {}
-    lo = _safe_float_config((mf or {}).get('lo')) or 0.0
-    mid = _safe_float_config((mf or {}).get('mid')) or 0.0
-    hi = _safe_float_config((mf or {}).get('hi')) or 0.0
-    invert = bool((mf or {}).get('invert', False))
+    cfg = st.session_state.get("fasl_cfg", {})
+    crit_bucket = cfg.get(criterion, {}) if isinstance(cfg, dict) else {}
+    spec = crit_bucket.get(metric_key, {}) if isinstance(crit_bucket, dict) else {}
+    if not isinstance(spec, dict):
+        spec = {}
+    mf = spec.get("mf") if isinstance(spec.get("mf"), dict) else {}
+    lo = _safe_float_config(mf.get("lo")) or 0.0
+    mid = _safe_float_config(mf.get("mid")) or 0.0
+    hi = _safe_float_config(mf.get("hi")) or 0.0
+    invert = bool(mf.get("invert", False))
     return lo, mid, hi, invert
 
 
@@ -1993,7 +1986,7 @@ def compute_and_render(tab_index: int, title: str, caption: str):
                 if dist_col in target_keys and isinstance(label, str):
                     desired_default_labels.append(label)
             if not desired_default_labels:
-                desired_default_labels = list(metric_labels)
+                desired_default_labels = []
 
             widget_key = f"{key_prefix}_metric_names"
             sig_key = f"__cfg_sel_sig_{criterion_code}"
