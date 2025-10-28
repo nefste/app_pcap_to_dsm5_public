@@ -7,202 +7,192 @@
   ],
   "C1": {
     "F1_DistinctSocial": {
-      "w": 0.1,
+      "w": 0.25,
+      "bom": "",
       "mf": {
         "type": "tri",
-        "lo": 50.0,
-        "mid": 65.0,
-        "hi": 65.0,
+        "lo": 20.0,
+        "mid": 80.0,
+        "hi": 80.0,
         "invert": false
-      },
-      "bom": ""
-    },
-    "F2_MeanSocialDurSec": {
-      "w": 0.1,
-      "mf": {
-        "type": "tri",
-        "lo": 10000.0,
-        "mid": 86400.0,
-        "hi": 86400.0,
-        "invert": false
-      },
-      "bom": ""
+      }
     },
     "F4_DownUpRatio": {
       "w": 0.2,
+      "bom": "",
       "mf": {
         "type": "tri",
         "lo": 3.0,
-        "mid": 9.0,
-        "hi": 9.0,
+        "mid": 12.0,
+        "hi": 12.0,
         "invert": false
-      },
-      "bom": ""
+      }
     },
     "F6_Fano": {
-      "w": 0.15,
+      "w": 0.1,
+      "bom": "",
       "mf": {
         "type": "tri",
-        "lo": 2000.0,
-        "mid": 8000.0,
-        "hi": 8000.0,
+        "lo": 100.0,
+        "mid": 1000.0,
+        "hi": 1000.0,
         "invert": false
-      },
-      "bom": ""
+      }
     },
     "F7_HourlyCV": {
-      "w": 0.2,
+      "w": 0.1,
+      "bom": "",
       "mf": {
         "type": "tri",
         "lo": 0.6,
         "mid": 3.0,
         "hi": 3.0,
         "invert": false
-      },
-      "bom": ""
+      }
     },
     "F8_NightDayRatioPkts": {
-      "w": 0.25,
+      "w": 0.35,
+      "bom": "",
       "mf": {
         "type": "tri",
-        "lo": 0.6,
+        "lo": 0.2,
         "mid": 1.0,
         "hi": 1.0,
         "invert": false
-      },
-      "bom": ""
+      }
     }
   },
   "C2": {
     "C2_F1_UniqueSLD": {
-      "w": 0.35,
+      "w": 0.4,
+      "bom": "",
       "mf": {
         "type": "tri",
-        "lo": 20.0,
+        "lo": 0.0,
         "mid": 40.0,
         "hi": 40.0,
         "invert": true
-      },
-      "bom": ""
+      }
     },
     "C2_F3_ChatSessionCount": {
-      "w": 0.35,
+      "w": 0.05,
+      "bom": "",
       "mf": {
         "type": "tri",
         "lo": 1.0,
         "mid": 3.0,
         "hi": 3.0,
         "invert": true
-      },
-      "bom": ""
+      }
     },
     "C2_F4_MeanUpstreamRateBps": {
-      "w": 0.15,
+      "w": 0.25,
+      "bom": "",
       "mf": {
         "type": "tri",
-        "lo": 60.0,
+        "lo": 0.0,
         "mid": 100.0,
         "hi": 100.0,
         "invert": true
-      },
-      "bom": ""
+      }
     },
     "C2_F6_ProductivityHits": {
-      "w": 0.15,
+      "w": 0.3,
+      "bom": "",
       "mf": {
         "type": "tri",
-        "lo": 8000.0,
+        "lo": 3500.0,
         "mid": 15000.0,
         "hi": 15000.0,
         "invert": true
-      },
-      "bom": ""
+      }
     }
   },
-  "C3": {},
   "C4": {
     "C4_F2_WakeAfter0400Min": {
-      "w": 0.7,
+      "w": 0.65,
+      "bom": "",
       "mf": {
         "type": "tri",
         "lo": 120.0,
-        "mid": 600.0,
+        "mid": 1085.0,
         "hi": 1085.0,
         "invert": false
-      },
-      "bom": ""
+      }
     },
     "C4_F4_SleepDurationZAbs30d": {
       "w": 0.2,
+      "bom": "",
       "mf": {
         "type": "tri",
         "lo": 0.25,
-        "mid": 1.0,
-        "hi": 1.0,
+        "mid": 0.8,
+        "hi": 0.8,
         "invert": false
-      },
-      "bom": ""
+      }
     },
     "C4_F7_DaytimeIdleRatio0818": {
       "w": 0.05,
+      "bom": "",
       "mf": {
         "type": "tri",
-        "lo": 0.05,
-        "mid": 0.12,
+        "lo": 0.0,
+        "mid": 0.08,
         "hi": 0.16,
         "invert": false
-      },
-      "bom": ""
+      }
     },
     "C4_F8_NightDayTrafficRatioBytes": {
-      "w": 0.05,
+      "w": 0.15,
+      "bom": "",
       "mf": {
         "type": "tri",
-        "lo": 0.6,
+        "lo": 0.2,
         "mid": 1.0,
         "hi": 1.0,
         "invert": false
-      },
-      "bom": ""
+      }
     }
   },
-  "C5": {},
-  "C6": {},
-  "C7": {},
   "C8": {
     "C8_F2_DNSBurstRatePerHour": {
-      "w": 0.35,
+      "w": 0.4,
+      "bom": "",
       "mf": {
         "type": "tri",
         "lo": 25.0,
-        "mid": 60.0,
+        "mid": 61.0,
         "hi": 61.0,
         "invert": false
-      },
-      "bom": ""
+      }
     },
     "C8_F4_RepeatedQueryRatio60m": {
-      "w": 0.35,
+      "w": 0.4,
+      "bom": "",
       "mf": {
         "type": "tri",
-        "lo": 0.9,
-        "mid": 0.98,
+        "lo": 0.8,
+        "mid": 1.0,
         "hi": 1.0,
         "invert": false
-      },
-      "bom": ""
+      }
     },
     "C8_F8_MedianIKSsec": {
-      "w": 0.3,
+      "w": 0.2,
+      "bom": "",
       "mf": {
         "type": "tri",
         "lo": 0.12,
-        "mid": 0.21,
-        "hi": 0.21,
+        "mid": 0.22,
+        "hi": 0.22,
         "invert": false
-      },
-      "bom": ""
+      }
     }
   },
+  "tau": 1.0,
+  "C3": {},
+  "C5": {},
+  "C6": {},
+  "C7": {},
   "C9": {}
 }

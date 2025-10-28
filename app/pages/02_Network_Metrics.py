@@ -438,6 +438,71 @@ def _ensure_fasl_config_state():
     else:
         st.session_state.setdefault("__fasl_cfg_source__", "session")
 
+    cfg_ref = st.session_state.get("fasl_cfg")
+    if isinstance(cfg_ref, dict):
+        try:
+            st.session_state.setdefault("fasl_gate_M", int(cfg_ref.get("M", 14)))
+        except Exception:
+            st.session_state.setdefault("fasl_gate_M", 14)
+        try:
+            st.session_state.setdefault("fasl_gate_N", int(cfg_ref.get("N", 10)))
+        except Exception:
+            st.session_state.setdefault("fasl_gate_N", 10)
+        try:
+            st.session_state.setdefault("fasl_gate_theta", float(cfg_ref.get("theta", 0.7)))
+        except Exception:
+            st.session_state.setdefault("fasl_gate_theta", 0.7)
+        core_default = cfg_ref.get("core_symptoms", ["C2"])
+        if isinstance(core_default, (list, tuple, set)):
+            core_list = [str(c) for c in core_default if str(c) in CRIT_KEYS]
+        elif isinstance(core_default, str) and core_default in CRIT_KEYS:
+            core_list = [core_default]
+        else:
+            core_list = ["C2"]
+        st.session_state.setdefault("fasl_gate_core", core_list)
+
+        for crit in CRIT_KEYS:
+            sel_key = f"sel_{crit}"
+            if isinstance(st.session_state.get(sel_key), list):
+                continue
+            bucket = cfg_ref.get(crit, {})
+            if not isinstance(bucket, dict):
+                st.session_state.setdefault(sel_key, [])
+                continue
+            allowed = set(ALL_METRIC_OPTIONS.get(crit, []))
+            default_metrics = [m for m in bucket.keys() if m in allowed]
+            st.session_state.setdefault(sel_key, default_metrics)
+            for metric_key in default_metrics:
+                spec = bucket.get(metric_key)
+                if not isinstance(spec, dict):
+                    continue
+                try:
+                    st.session_state.setdefault(f"w_{crit}_{metric_key}", float(spec.get("w", 0.1)))
+                except Exception:
+                    st.session_state.setdefault(f"w_{crit}_{metric_key}", 0.1)
+                mf = spec.get("mf", {}) if isinstance(spec.get("mf"), dict) else {}
+                try:
+                    st.session_state.setdefault(f"lo_{crit}_{metric_key}", float(mf.get("lo", 0.0)))
+                except Exception:
+                    st.session_state.setdefault(f"lo_{crit}_{metric_key}", 0.0)
+                try:
+                    st.session_state.setdefault(f"mid_{crit}_{metric_key}", float(mf.get("mid", 0.0)))
+                except Exception:
+                    st.session_state.setdefault(f"mid_{crit}_{metric_key}", 0.0)
+                try:
+                    st.session_state.setdefault(f"hi_{crit}_{metric_key}", float(mf.get("hi", 0.0)))
+                except Exception:
+                    st.session_state.setdefault(f"hi_{crit}_{metric_key}", 0.0)
+                invert_val = bool(mf.get("invert", False))
+                st.session_state.setdefault(f"inv_{crit}_{metric_key}", invert_val)
+                st.session_state.setdefault(f"mft_{crit}_{metric_key}", str(mf.get("type", "tri")).lower())
+                bom_val = _normalise_bom_value(spec.get("bom"))
+                bom_options = CRIT_BOM_OPTIONS.get(crit, [])
+                st.session_state.setdefault(
+                    f"bom_{crit}_{metric_key}",
+                    bom_val if bom_val in bom_options else "No BOM defined",
+                )
+
 
 def _normalize_uploaded_config(cfg: dict) -> dict:
     normalized = _normalize_fasl_cfg(cfg)
@@ -1902,17 +1967,63 @@ def compute_and_render(tab_index: int, title: str, caption: str):
 
         metrics = metrics_by_tab[tab_index]
         key_prefix = f"c{tab_index+1}"
+        criterion_code = CRITERION_CODES[tab_index]
 
         # Popover: status & metric name filters
         with st.popover("Metric filters", use_container_width=True):
             selected_statuses = metric_filter_ui(key_prefix)
             metric_labels = [m["label"] for m in metrics]
+
+            cfg_metrics = st.session_state.get(f"sel_{criterion_code}")
+            if isinstance(cfg_metrics, list):
+                cfg_metric_keys = [m for m in cfg_metrics if m in ALL_METRIC_OPTIONS.get(criterion_code, [])]
+            else:
+                cfg_state = st.session_state.get("fasl_cfg", {})
+                bucket = cfg_state.get(criterion_code, {}) if isinstance(cfg_state, dict) else {}
+                if isinstance(bucket, dict):
+                    cfg_metric_keys = [m for m in bucket.keys() if m in ALL_METRIC_OPTIONS.get(criterion_code, [])]
+                else:
+                    cfg_metric_keys = []
+
+            target_keys = set(cfg_metric_keys)
+            desired_default_labels: list[str] = []
+            for item in metrics:
+                dist_col = item.get("dist_col")
+                label = item.get("label")
+                if dist_col in target_keys and isinstance(label, str):
+                    desired_default_labels.append(label)
+            if not desired_default_labels:
+                desired_default_labels = list(metric_labels)
+
+            widget_key = f"{key_prefix}_metric_names"
+            sig_key = f"__cfg_sel_sig_{criterion_code}"
+            config_sig = tuple(cfg_metric_keys)
+            prev_sig = st.session_state.get(sig_key)
+            options_set = set(metric_labels)
+
+            if prev_sig != config_sig:
+                st.session_state[sig_key] = config_sig
+                st.session_state[widget_key] = [lbl for lbl in desired_default_labels if lbl in options_set]
+            else:
+                st.session_state.setdefault(sig_key, config_sig)
+                current_values = st.session_state.get(widget_key)
+                if not isinstance(current_values, list):
+                    st.session_state[widget_key] = [lbl for lbl in desired_default_labels if lbl in options_set]
+                else:
+                    sanitized = [lbl for lbl in current_values if lbl in options_set]
+                    if sanitized != current_values:
+                        st.session_state[widget_key] = sanitized if sanitized else [
+                            lbl for lbl in desired_default_labels if lbl in options_set
+                        ]
+                    else:
+                        st.session_state[widget_key] = sanitized
+
             selected_metric_labels = st.multiselect(
                 "Select metrics",
                 options=metric_labels,
-                default=metric_labels,
-                key=f"{key_prefix}_metric_names",
-                help="Choose which KPIs to display. By default, all metrics are selected.",
+                default=desired_default_labels,
+                key=widget_key,
+                help="Choose which KPIs to display. Metrics defined in the FASL configuration are selected by default.",
             )
 
         # Gauges (OK / Caution / N/A)
@@ -1930,7 +2041,7 @@ def compute_and_render(tab_index: int, title: str, caption: str):
             ALL_DAILY,
             selected_metric_labels,
             key_prefix=key_prefix,
-            criterion_code=CRITERION_CODES[tab_index],
+            criterion_code=criterion_code,
         )
 
 compute_and_render(0, "Criterion 1 - Depressed mood", "Insomnia or hypersomnia, nearly every day.")

@@ -847,7 +847,11 @@ def _sync_tau_slider_state(changed_key: str) -> None:
 # Auto-load default FASL config once per session when opening this page
 try:
     if not st.session_state.get("fasl_config_autoload_done", False):
-        default_cfg_path = (Path(__file__).resolve().parent.parent / "utils" / "fasl_config_20250912_0946.json")
+        default_cfg_path = FASL_CONFIG_PATH
+        if not default_cfg_path.exists():
+            fallback_cfg_path = Path(__file__).resolve().parent.parent / "utils" / "fasl_config_20250912_0946.json"
+            if fallback_cfg_path.exists():
+                default_cfg_path = fallback_cfg_path
         if default_cfg_path.exists():
             raw_cfg = json.loads(default_cfg_path.read_text(encoding="utf-8"))
             # Use the same normalization as the uploader to align schema
@@ -874,7 +878,10 @@ try:
             st.session_state["fasl_gate_core"] = list(cfg_state.get("core_symptoms", ["C2"]))
             # Do not set per-metric widget keys here; their 'value=' params read from cfg_state on first render
             try:
-                st.toast("Loaded default FASL Config. You can adjust it in the Configuration or also upload your own config.", icon="✅")
+                st.toast(
+                    f"Loaded FASL config from {default_cfg_path.name}. You can adjust it in the Configuration or upload your own config.",
+                    icon="✅",
+                )
             except Exception:
                 pass
         st.session_state["fasl_config_autoload_done"] = True
