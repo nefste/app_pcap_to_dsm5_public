@@ -25,10 +25,9 @@ The primary goals are to:
 5. Aggregate the likelihoods with a configurable FASL gate to produce day-level BOM statuses (`OK`, `Caution`, `N/A`) and surface them through an interactive dashboard.
 
 ## Visual walkthrough
+![High-level information flow from data ingestion through feature extraction to DSM-5 aligned indicators.](app/utils/information_flow.png)
 
 ![Overview of the application pipeline showing collection, enrichment, metrics, and assessment steps.](app/utils/overview_app_visualisations.png)
-
-![High-level information flow from data ingestion through feature extraction to DSM-5 aligned indicators.](app/utils/information_flow.png)
 
 ![Sankey diagram linking household devices to PCAP windows, engineered metrics, BOM aggregation, DSM-5 criteria, and the user feedback loop.](app/utils/router_dsm5_sankey.png)
 
@@ -80,26 +79,26 @@ The primary goals are to:
 
 3. Set `SCAPY_USE_LIBPCAP=no` if libpcap is unavailable; the application only reads from files.
 
-## Working with PCAP data
+## Working with PCAP Data
 
 - Input traces should contain packet headers only; payload inspection is neither required nor performed.
 - Processed five-minute Parquet windows are stored in `app/processed_parquet/`.
 - Day-level feature caches are written to `app/feature_cache/` to accelerate repeat sessions.
 - The application provides safeguards around corrupt row groups and allows uploads to be chunked when files are large.
 
-## Transparency and configuration
+## Transparency and Configuration
 
 - Per-criterion metric logic resides in `app/metrics/criterion*.py`, with shared enrichment helpers in `app/metrics/common.py`.
 - `app/fasl_config.json` enumerates all FASL weights, membership functions, thresholds, and gate windows; adjust these to experiment with different behaviours.
 - Streamlit look-and-feel and authentication are controlled by `app/.streamlit/config.toml` and `app/.streamlit/secrets.toml`.
 
-## In-app entry points
+## Entry points
 
 ![Early Signs Overview page with Behaviour Observation Metric tiles acting as the user's dashboard entry point.](app/utils/dsm_5_indicator_overview_as_users_entry_point.png)
 
 ![Example metric tile and detail view for DSM-5 Criterion 8 Feature 8 (C8_F8) illustrating how network signals map to interpretable indicators.](app/utils/C8_F8.png)
 
-## Research context
+## Research Context
 
 The prototype was evaluated on two complementary datasets:
 
@@ -108,7 +107,7 @@ The prototype was evaluated on two complementary datasets:
 
 Across both datasets, flow-level indicators such as night-to-day ratios, domain diversity, and passive versus active traffic shares covary with their target DSM-5 criteria. The FASL gate produces stable daily summaries while exposing short-term excursions for further review.
 
-## Safety, ethics, and privacy
+## Safety, Ethics, and Privacy
 
 - The tool aims to support early conversations, not clinical diagnosis or treatment decisions.
 - Ensure you comply with local regulations and consent requirements before collecting network metadata.
