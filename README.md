@@ -6,6 +6,7 @@ This repository houses the end-to-end Streamlit application developed as part of
 **Important:** This software is a research prototype. It must not be used for diagnosis, medical decision-making, or as a substitute for professional clinical assessment.
 
 A hosted build is available at https://unisg-nef.streamlit.app/.
+(ask for login credentials: stephan.nef@student.unisg.ch or deploy it locally)
 
 ## Overview
 
