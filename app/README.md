@@ -1,73 +1,84 @@
- # PCAP Analyzer for Behavioral Research (DSM‑5 mapping)
- This app is a MVP research tool and not used for medical device. Use responsibly.
+# Streamlit Application
 
- This app transforms anonymized network metadata (no content) into interpretable, human‑readable indicators aligned with DSM‑5 symptom domains. It supports families and clinicians with longitudinal context and is intended strictly for research and early‑warning discussions — not diagnosis.
- 
- ## Run With Docker (recommended)
- - Prerequisite: Docker Desktop installed
- - From this folder (`app/`), build and start:
- 
- ```bash
- docker compose up --build
- ```
- 
- - Open the app at: http://localhost:8501
+This directory contains the Streamlit front-end that powers the Router-Centric Behavioral Signals Prototype documented in `../README.md`.
 
- 
- ## Local Development (without Docker)
- ```bash
- python -m venv venv
- venv\Scripts\activate     
- pip install -r ../requirements.txt
- 
- streamlit run app/00_Home.py
- ```
- 
- ## Project Structure
- - `app/00_Home.py`: Streamlit entry page, intro and mapping overview
- - `app/pages/01_Upload_and_Overview.py`: Upload PCAP/PCAPNG, partition into 5‑min Parquet, traffic overview
- - `app/pages/02_DSM5_Dashboard.py`: Dashboard computing per‑criterion KPIs (OK/Caution/N/A) for a selected day
- - `app/pages/03_FASL_DSM_Gate.py`: Fuzzy‑Additive Symptom Likelihood + DSM‑Gate (transparent, rule‑based prototype)
- - `app/metrics/`: Feature engineering and per‑criterion logic
-   - `base_features.py`: Day‑level base features (sessions, timing, directions, volumes)
-   - `common.py`: Enrichment (DNS/hostnames), curated SLD lists, helpers
-   - `criterion1.py` … `criterion9.py`: Metrics mapped to DSM‑5 criteria C1–C9
-   - `metrics_catalog.xlsx`: Human‑readable mapping catalog used on the home page
- - `app/processed_parquet/`: Output store for 5‑minute Parquet partitions (created on demand)
- - `app/feature_cache/`: Daily metric cache for faster dashboard loads (created on demand)
- - `app/.streamlit/`: Streamlit config and secrets (credentials)
- 
- ## Architecture Overview
- - Ingestion & partitioning:
-   - PCAP/PCAPNG files are read with Scapy and partitioned into 5‑minute Parquet files: `app/pages/01_Upload_and_Overview.py`.
-   - Files are named with a start timestamp suffix (`__YYYYMMDD_HHMM.parquet`) to enable robust filtering by day/week.
- - Enrichment & base features:
-   - DNS/hostname enrichment and curated SLDs (e.g., social, streaming) live in `metrics/common.py`.
-   - Day‑level base features are computed in `metrics/base_features.py` (sessions, timing patterns, directionality, volumes, etc.).
- - Metrics per DSM‑5 criterion:
-   - Each criterion (C1–C9) has a dedicated module `metrics/criterionX.py`, computing interpretable signals from base features and enriched context.
-   - Output statuses are normalized to `OK`, `Caution`, or `N/A` and rendered as KPI tiles in the dashboard.
- - Caching strategy:
-   - The dashboard keeps a per‑day cache (`app/feature_cache/`) to avoid recomputation when the underlying 5‑min partitions are unchanged.
-   - Parquet readers are implemented defensively to bypass corrupt row groups where possible.
- - FASL + DSM‑Gate (research prototype):
-   - `pages/03_FASL_DSM_Gate.py` exposes a transparent, rule‑based, interactive model that aggregates existing metrics into fuzzy likelihoods and a DSM‑Gate over a rolling window.
- 
- ## Key Features
- - Upload and partition PCAP/PCAPNG into 5‑minute Parquet chunks
- - Robust Parquet read/write with fallbacks for partial corruption
- - Dataset grouping and day/week selection for analysis
- - Per‑criterion KPIs (OK/Caution/N/A) with plots and details
- - Transparent FASL + DSM‑Gate prototype leveraging existing metrics
- - Simple login gate via Streamlit secrets (username/password)
- 
- ## Configuration & Credentials
- - Streamlit config: `app/.streamlit/config.toml`
- - Secrets (credentials): `app/.streamlit/secrets.toml`
-   - Update the values before sharing or deploying beyond a trusted environment.
-   - With Docker Compose, the entire `.streamlit` directory is mounted read‑only into the container.
- 
- ## Notes
- - Scapy is configured to avoid libpcap by default (`SCAPY_USE_LIBPCAP=no`) since the app only reads from files, not from live interfaces.
- - Large PCAPs can be memory‑intensive; consider chunking uploads or running with sufficient RAM.
- - This software is a research tool and not a medical device. Use responsibly.
+**Important:** This application is a research prototype created for the Master thesis **Digital and Environmental Signals, Passive Sensing for Early Depression Detection** (University of St. Gallen, Stephan Nef). It must not be used for diagnosis, medical decision-making, or emergency escalation.
+
+## Live deployment and further reading
+
+- Hosted build: https://unisg-nef.streamlit.app/
+- Project overview, data flow, and research context: see `../README.md`.
+
+## Page overview
+
+- `00_Home.py`: Landing page with project context, DSM-5 mapping summary, and links to supporting material.
+- `pages/01_Early_Signs_Overview.py`: Daily Behaviour Observation Metric (BOM) status tiles, per-criterion explanations, and timeline plots.
+- `pages/02_Network_Metrics.py`: Exploratory views on network activity, night/day balances, domain diversity, and modality mixes derived from five-minute windows.
+- `pages/03_User_and_Network_Settings.py`: Profile management, dataset selection, and configuration helpers for the Fuzzy Additive Symptom Likelihood (FASL) gate.
+- `pages/how_it_works_en.md`: In-app documentation that mirrors the narrative used throughout the thesis.
+
+Supporting modules live under:
+
+- `metrics/`: Feature engineering logic for DSM-5 criteria, behaviour grouping, and helper utilities.
+- `utils/`: Shared support functions (data loading, caching, plotting utilities).
+
+## Visual walkthrough
+
+![Overview of the application pipeline showing collection, enrichment, metrics, and assessment steps.](utils/overview_app_visualisations.png)
+
+![High-level information flow from data ingestion through feature extraction to DSM-5 aligned indicators.](utils/information_flow.png)
+
+![Sankey diagram linking household devices to PCAP windows, engineered metrics, BOM aggregation, DSM-5 criteria, and the user feedback loop.](utils/router_dsm5_sankey.png)
+
+## In-app snapshots
+
+![Early Signs Overview page with Behaviour Observation Metric tiles acting as the user's dashboard entry point.](utils/dsm_5_indicator_overview_as_users_entry_point.png)
+
+![Example metric tile and detail view for DSM-5 Criterion 8 Feature 8 (C8_F8) illustrating how network signals map to interpretable indicators.](utils/C8_F8.png)
+
+## Running the app locally
+
+### Docker workflow (mirrors production deployment)
+
+```bash
+docker compose up --build
+```
+
+Run the command from this `app/` directory. The container exposes Streamlit on http://localhost:8501 and mounts `.streamlit/` read-only so the credentials in `secrets.toml` remain on the host.
+
+### Virtual environment workflow
+
+```bash
+python -m venv ..\.venv
+..\.venv\Scripts\activate
+pip install -r requirements.txt
+streamlit run 00_Home.py
+```
+
+Notes:
+- Install the repository-level requirements (`pip install -r ../requirements.txt`) if you plan to run ancillary scripts outside the app.
+- Set `SCAPY_USE_LIBPCAP=no` when libpcap is not available; the app only reads from files and does not require raw interface capture.
+
+## Configuration touchpoints
+
+- `fasl_config.json`: Central definitions for FASL weights, membership functions, thresholds, and DSM-style gate windows.
+- `.streamlit/config.toml`: Streamlit theme and layout options.
+- `.streamlit/secrets.toml`: Username/password pair for the lightweight login guard.
+- `metrics/metrics_catalog.xlsx`: Human-readable catalogue that maps engineered features to DSM-5 criteria and is rendered on the home page.
+
+## Data directories
+
+- `processed_parquet/`: On-demand storage for five-minute parquet partitions derived from uploaded PCAP/PCAPNG files.
+- `feature_cache/`: Daily metric caches that accelerate repeat visits by avoiding recomputation.
+
+Both folders are created lazily by the application and can be cleared safely if you want to reset cached artefacts.
+
+## Development tips
+
+- Use the sample datasets referenced in the thesis to validate behaviour changes after adjusting thresholds.
+- When iterating on metric logic, disable caching via the in-app controls or clear `feature_cache/` to ensure fresh computations.
+- Keep credentials out of version control; `.streamlit/secrets.toml` is ignored via `.gitignore` but review before publishing forks.
+
+## Safety reminder
+
+The insights exposed by this application are intended to foster early, empathetic conversations. They are not diagnostic labels and must always be interpreted by qualified professionals within an ethical data-governance framework.
