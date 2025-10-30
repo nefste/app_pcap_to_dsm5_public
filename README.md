@@ -1,4 +1,5 @@
-# Router-Centric Behavioral Signals Prototype
+# Digital and Environmental Signals
+### Passive Sensing for Early Depression Detection
 
 This repository houses the end-to-end Streamlit application developed as part of the Master thesis **Digital and Environmental Signals, Passive Sensing for Early Depression Detection** by Stephan Nef at the University of St. Gallen.
 
