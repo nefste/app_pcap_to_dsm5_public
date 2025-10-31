@@ -1446,6 +1446,32 @@ with st.expander("DSM-5 Diagnostic Reference", expanded=False):
     DSM‑5 describes a Major Depressive Episode as having at least 5 symptoms present during the same 2‑week period, and at least one is either depressed mood or markedly diminished interest/pleasure (anhedonia). This page implements a transparent, rule‑based approximation: daily likelihoods (L_k) aggregated over a rolling window M with threshold θ and count N. Tuning M/N/θ adjusts sensitivity while staying faithful to the spirit of the DSM‑5 criteria.
     """
     )
+    st.markdown("**Must have all 4, plus >=5 depressive symptoms above**")
+    check_impair = st.checkbox(
+        "Symptoms cause clinically significant distress or impairment in social, occupational, or other important areas of functioning",
+        key="dsm_ref_impairment",
+    )
+    check_substance = st.checkbox(
+        "Episode not attributable to physiological effects of a substance or another medical condition",
+        key="dsm_ref_substance",
+    )
+    check_psychotic = st.checkbox(
+        "Episode not better explained by schizoaffective disorder, schizophrenia, schizophreniform disorder, delusional disorder, or other specified and unspecified schizophrenia spectrum and other psychotic disorders",
+        key="dsm_ref_psychotic",
+    )
+    check_mania = st.checkbox(
+        "No history of manic or hypomanic episode (exclusion does not apply if all manic-like or hypomanic-like episodes are substance-induced or attributable to another medical condition)",
+        key="dsm_ref_mania",
+    )
+    all_checks = all([check_impair, check_substance, check_psychotic, check_mania])
+    if all_checks:
+        st.warning(
+            "All four diagnostic guard-rails are marked. Please involve a licensed mental-health professional to review these findings and discuss next steps."
+        )
+    else:
+        st.info(
+            "Even without every box ticked, if something feels off it is okay to speak with a healthcare professional or someone you trust. These observations can support that conversation."
+        )
 st.write("  ")
 
 # Compute average likelihood per criterion (all days), pick top 6 (shared)
