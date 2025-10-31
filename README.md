@@ -59,7 +59,8 @@ The primary goals are to:
    docker compose up --build
    ```
 
-3. Open http://localhost:8501 in a browser and sign in with the credentials defined in `app/.streamlit/secrets.toml`.
+3. Open http://localhost:8501 in a browser and sign in with the credentials can be defined in `app/.streamlit/secrets.toml`. (username = "USER_NAME"
+password = "$_SET_YOUR_PASSWORD_$")
 
 ### Option 2 - local Python environment
 
