@@ -44,7 +44,7 @@ def login():
     except Exception:
         st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/f/f8/HSG_Logo_DE_RGB.svg/1024px-HSG_Logo_DE_RGB.svg.png", use_container_width=True)
     st.subheader("👋🏻 welcome - please login")
-    username = st.text_input("Username", placeholder="nef")
+    username = st.text_input("Username", placeholder="username")
     password = st.text_input("Password", type="password")
     st.info("ℹ️ if you need access please reach out to stephan.nef@student.unisg.ch")
     if username and password:
