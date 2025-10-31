@@ -1,6 +1,6 @@
 # CareNet Application
 ### mental health awareness through network traffic insights
-![](app/utils/logo.png)
+![](app/utils/logo.svg)
 
 This directory contains the application that powers the Router-Centric Behavioral Signals Prototype documented in `../README.md`.
 
