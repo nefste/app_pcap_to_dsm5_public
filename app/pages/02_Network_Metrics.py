@@ -8,6 +8,7 @@ import re
 import hashlib
 import json
 import copy
+import math
 from datetime import datetime, date
 from pathlib import Path
 
@@ -24,15 +25,15 @@ from utils.acronyms import render_acronyms_helper_in_sidebar
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 
 # ---- criterion implementations ----
-from metrics.criterion1 import Criterion1
-from metrics.criterion2 import Criterion2
-from metrics.criterion3 import Criterion3
-from metrics.criterion4 import Criterion4
-from metrics.criterion5 import Criterion5
-from metrics.criterion6 import Criterion6
-from metrics.criterion7 import Criterion7
-from metrics.criterion8 import Criterion8
-from metrics.criterion9 import Criterion9
+from metrics.criterion1 import Criterion1, C1_DEFS
+from metrics.criterion2 import Criterion2, C2_DEFS
+from metrics.criterion3 import Criterion3, C3_DEFS
+from metrics.criterion4 import Criterion4, C4_DEFS
+from metrics.criterion5 import Criterion5, C5_DEFS
+from metrics.criterion6 import Criterion6, C6_DEFS
+from metrics.criterion7 import Criterion7, C7_DEFS
+from metrics.criterion8 import Criterion8, C8_DEFS
+from metrics.criterion9 import Criterion9, C9_DEFS
 
 from metrics.common import (
     enrich_with_hostnames,
@@ -145,6 +146,123 @@ os.makedirs(FEATURE_CACHE_DIR, exist_ok=True)
 FASL_CONFIG_PATH = APP_DIR / "fasl_config.json"
 DEFAULT_FASL_CONFIG_PATH = APP_DIR / "utils" / "fasl_config_20250912_0946.json"
 CRITERION_CODES = ["C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9"]
+CRIT_KEYS = CRITERION_CODES
+
+ALL_METRIC_OPTIONS = {
+    "C1": [d.dist_col for d in C1_DEFS],
+    "C2": [d.dist_col for d in C2_DEFS],
+    "C3": [d.dist_col for d in C3_DEFS],
+    "C4": [d.dist_col for d in C4_DEFS],
+    "C5": [d.dist_col for d in C5_DEFS],
+    "C6": [d.dist_col for d in C6_DEFS],
+    "C7": [d.dist_col for d in C7_DEFS],
+    "C8": [d.dist_col for d in C8_DEFS],
+    "C9": [d.dist_col for d in C9_DEFS],
+}
+
+
+def _normalise_bom_value(raw) -> str:
+    if isinstance(raw, str):
+        val = raw.strip()
+        if not val or val.lower() == "no bom defined":
+            return ""
+        return val
+    return ""
+
+
+CRIT_BOM_OPTIONS = {
+    "C1": [
+        "(HOB1) Reduced Social Interaction",
+        "(HOB2) Passive Media Binge",
+        "(HOB3) Rumination Browsing loops",
+        "(HOB4) Flattened diurnal Rhythm",
+    ],
+    "C2": [
+        "(HOB1) Shrinking Domain Diversity",
+        "(HOB2) Reduced Interactive Engagement",
+        "(HOB3) Drop in Goal-Oriented Browsing",
+    ],
+    "C3": [
+        "(HOB1) Food-ordering Pattern Shift",
+        "(HOB2) Calorie / Nutrition Information Seeking",
+        "(HOB3) Smart-scale usage Variability",
+    ],
+    "C4": [
+        "(HOB1) Shifted Sleep Timing",
+        "(HOB2) Changed Sleep Duration",
+        "(HOB3) Sleep Fragmentation",
+        "(HOB4) Daytime Hypersomnia / Rhythm Flattening",
+    ],
+    "C5": [
+        "(HOB1) Restless Device Switching (agitation)",
+        "(HOB2) Slowed / Variable Typing Dynamics (retardation)",
+        "(HOB3) \"Screen-check\" Burstiness",
+    ],
+    "C6": [
+        "(HOB1) Extended Day-time Inactivity",
+        "(HOB2) Decline in Effortful Interaction",
+        "(HOB3) Slowed Browsing Tempo",
+        "(HOB4) Delayed Morning Activation",
+    ],
+    "C7": [
+        "(HOB1) Guilt-tripping / Negative Self-talk",
+        "(HOB2) Catastrophic Outlook",
+        "(HOB3) Reputation / Account Security Anxiety",
+    ],
+    "C8": [
+        "(HOB1) Fragmented Browsing / Task Switching",
+        "(HOB2) Escalating Search Reformulation",
+        "(HOB3) Decision Paralysis via Backtracking",
+    ],
+    "C9": [
+        "(HOB1) Active Crisis Searching",
+        "(HOB2) Self-harm Community Immersion",
+        "(HOB3) End-of-life Administrative Planning",
+    ],
+}
+
+
+def _ensure_bom_field(cfg: dict) -> None:
+    for crit_val in cfg.values():
+        if isinstance(crit_val, dict):
+            for spec in crit_val.values():
+                if isinstance(spec, dict) and "w" in spec:
+                    spec["bom"] = _normalise_bom_value(spec.get("bom"))
+
+
+def _get_default_cfg() -> dict:
+    defaults = st.session_state.get("__fasl_cfg_default__")
+    return defaults if isinstance(defaults, dict) else {}
+
+
+def _metric_differs_from_default(crit: str, metric: str, spec: dict) -> bool:
+    defaults = _get_default_cfg()
+    default_bucket = defaults.get(crit)
+    default = default_bucket.get(metric) if isinstance(default_bucket, dict) else None
+    if default is None:
+        return True
+    if not isinstance(spec, dict):
+        return True
+    try:
+        if not math.isclose(float(spec.get("w", 0.0)), float(default.get("w", 0.0)), rel_tol=1e-9, abs_tol=1e-9):
+            return True
+    except Exception:
+        return True
+    if _normalise_bom_value(spec.get("bom")) != _normalise_bom_value(default.get("bom")):
+        return True
+    mf = spec.get("mf", {}) or {}
+    def_mf = default.get("mf", {}) or {}
+    if str(mf.get("type", "tri")).lower() != str(def_mf.get("type", "tri")).lower():
+        return True
+    for key in ("lo", "mid", "hi"):
+        try:
+            if not math.isclose(float(mf.get(key, 0.0)), float(def_mf.get(key, 0.0)), rel_tol=1e-9, abs_tol=1e-9):
+                return True
+        except Exception:
+            return True
+    if bool(mf.get("invert", False)) != bool(def_mf.get("invert", False)):
+        return True
+    return False
 
 
 
@@ -161,23 +279,16 @@ def _safe_float_config(value) -> float | None:
 def _get_fasl_membership(criterion: str | None, metric_key: str | None) -> tuple[float, float, float, bool]:
     if not criterion or not metric_key:
         return 0.0, 0.0, 0.0, False
-    try:
-        spec = _ensure_fasl_metric_entry(criterion, metric_key)
-    except Exception:
-        cfg = st.session_state.setdefault('fasl_cfg', {})
-        crit_bucket = cfg.get(criterion, {}) if isinstance(cfg, dict) else {}
-        spec = crit_bucket.get(metric_key, {}) if isinstance(crit_bucket, dict) else {}
-        mf = spec.get('mf') if isinstance(spec, dict) else {}
-        lo = _safe_float_config((mf or {}).get('lo')) or 0.0
-        mid = _safe_float_config((mf or {}).get('mid')) or 0.0
-        hi = _safe_float_config((mf or {}).get('hi')) or 0.0
-        invert = bool((mf or {}).get('invert', False))
-        return lo, mid, hi, invert
-    mf = spec.get('mf') if isinstance(spec, dict) else {}
-    lo = _safe_float_config((mf or {}).get('lo')) or 0.0
-    mid = _safe_float_config((mf or {}).get('mid')) or 0.0
-    hi = _safe_float_config((mf or {}).get('hi')) or 0.0
-    invert = bool((mf or {}).get('invert', False))
+    cfg = st.session_state.get("fasl_cfg", {})
+    crit_bucket = cfg.get(criterion, {}) if isinstance(cfg, dict) else {}
+    spec = crit_bucket.get(metric_key, {}) if isinstance(crit_bucket, dict) else {}
+    if not isinstance(spec, dict):
+        spec = {}
+    mf = spec.get("mf") if isinstance(spec.get("mf"), dict) else {}
+    lo = _safe_float_config(mf.get("lo")) or 0.0
+    mid = _safe_float_config(mf.get("mid")) or 0.0
+    hi = _safe_float_config(mf.get("hi")) or 0.0
+    invert = bool(mf.get("invert", False))
     return lo, mid, hi, invert
 
 
@@ -199,9 +310,8 @@ def _apply_tri_background(fig, lo, mid, hi, invert, y_min, y_max):
         lo_draw = float(np.clip(lo_draw, y_min, y_max))
         mid_draw = float(np.clip(mid_draw, y_min, y_max))
         hi_draw = float(np.clip(hi_draw, y_min, y_max))
-    good = "rgba(34,197,94,0.15)"
-    bad = "rgba(239,68,68,0.12)"
-    accent_blue = "rgba(59,130,246,0.12)"
+    membership_fill = "rgba(239,68,68,0.18)"
+    outside_fill = "rgba(134,239,172,0.18)"
     span_lo = sorted((lo_draw, mid_draw))
     span_hi = sorted((mid_draw, hi_draw))
     if span_lo[0] != span_lo[1]:
@@ -209,7 +319,7 @@ def _apply_tri_background(fig, lo, mid, hi, invert, y_min, y_max):
             y0=span_lo[0],
             y1=span_lo[1],
             line_width=0,
-            fillcolor=bad if invert else good,
+            fillcolor=membership_fill,
             layer="below",
         )
     if span_hi[0] != span_hi[1]:
@@ -217,27 +327,25 @@ def _apply_tri_background(fig, lo, mid, hi, invert, y_min, y_max):
             y0=span_hi[0],
             y1=span_hi[1],
             line_width=0,
-            fillcolor=good if invert else bad,
+            fillcolor=membership_fill,
             layer="below",
         )
-    if invert:
-        if np.isfinite(y_max) and hi_draw < y_max:
-            fig.add_hrect(
-                y0=hi_draw,
-                y1=y_max,
-                line_width=0,
-                fillcolor=accent_blue,
-                layer="below",
-            )
-    else:
-        if np.isfinite(y_min) and lo_draw > y_min:
-            fig.add_hrect(
-                y0=y_min,
-                y1=lo_draw,
-                line_width=0,
-                fillcolor=accent_blue,
-                layer="below",
-            )
+    if not invert and np.isfinite(y_min) and np.isfinite(lo_draw) and lo_draw > y_min:
+        fig.add_hrect(
+            y0=y_min,
+            y1=lo_draw,
+            line_width=0,
+            fillcolor=outside_fill,
+            layer="below",
+        )
+    if invert and np.isfinite(y_max) and np.isfinite(hi_draw) and hi_draw < y_max:
+        fig.add_hrect(
+            y0=hi_draw,
+            y1=y_max,
+            line_width=0,
+            fillcolor=outside_fill,
+            layer="below",
+        )
     fig.add_hline(y=mid_draw, line_dash="dot", line_color="gray")
 
 
@@ -322,6 +430,106 @@ def _ensure_fasl_config_state():
         st.session_state["fasl_cfg"] = copy.deepcopy(cfg)
     else:
         st.session_state.setdefault("__fasl_cfg_source__", "session")
+
+    cfg_ref = st.session_state.get("fasl_cfg")
+    if isinstance(cfg_ref, dict):
+        try:
+            st.session_state.setdefault("fasl_gate_M", int(cfg_ref.get("M", 14)))
+        except Exception:
+            st.session_state.setdefault("fasl_gate_M", 14)
+        try:
+            st.session_state.setdefault("fasl_gate_N", int(cfg_ref.get("N", 10)))
+        except Exception:
+            st.session_state.setdefault("fasl_gate_N", 10)
+        try:
+            st.session_state.setdefault("fasl_gate_theta", float(cfg_ref.get("theta", 0.7)))
+        except Exception:
+            st.session_state.setdefault("fasl_gate_theta", 0.7)
+        core_default = cfg_ref.get("core_symptoms", ["C2"])
+        if isinstance(core_default, (list, tuple, set)):
+            core_list = [str(c) for c in core_default if str(c) in CRIT_KEYS]
+        elif isinstance(core_default, str) and core_default in CRIT_KEYS:
+            core_list = [core_default]
+        else:
+            core_list = ["C2"]
+        st.session_state.setdefault("fasl_gate_core", core_list)
+
+        for crit in CRIT_KEYS:
+            sel_key = f"sel_{crit}"
+            if isinstance(st.session_state.get(sel_key), list):
+                continue
+            bucket = cfg_ref.get(crit, {})
+            if not isinstance(bucket, dict):
+                st.session_state.setdefault(sel_key, [])
+                continue
+            allowed = set(ALL_METRIC_OPTIONS.get(crit, []))
+            default_metrics = [m for m in bucket.keys() if m in allowed]
+            st.session_state.setdefault(sel_key, default_metrics)
+            for metric_key in default_metrics:
+                spec = bucket.get(metric_key)
+                if not isinstance(spec, dict):
+                    continue
+                try:
+                    st.session_state.setdefault(f"w_{crit}_{metric_key}", float(spec.get("w", 0.1)))
+                except Exception:
+                    st.session_state.setdefault(f"w_{crit}_{metric_key}", 0.1)
+                mf = spec.get("mf", {}) if isinstance(spec.get("mf"), dict) else {}
+                try:
+                    st.session_state.setdefault(f"lo_{crit}_{metric_key}", float(mf.get("lo", 0.0)))
+                except Exception:
+                    st.session_state.setdefault(f"lo_{crit}_{metric_key}", 0.0)
+                try:
+                    st.session_state.setdefault(f"mid_{crit}_{metric_key}", float(mf.get("mid", 0.0)))
+                except Exception:
+                    st.session_state.setdefault(f"mid_{crit}_{metric_key}", 0.0)
+                try:
+                    st.session_state.setdefault(f"hi_{crit}_{metric_key}", float(mf.get("hi", 0.0)))
+                except Exception:
+                    st.session_state.setdefault(f"hi_{crit}_{metric_key}", 0.0)
+                invert_val = bool(mf.get("invert", False))
+                st.session_state.setdefault(f"inv_{crit}_{metric_key}", invert_val)
+                st.session_state.setdefault(f"mft_{crit}_{metric_key}", str(mf.get("type", "tri")).lower())
+                bom_val = _normalise_bom_value(spec.get("bom"))
+                bom_options = CRIT_BOM_OPTIONS.get(crit, [])
+                st.session_state.setdefault(
+                    f"bom_{crit}_{metric_key}",
+                    bom_val if bom_val in bom_options else "No BOM defined",
+                )
+
+
+def _normalize_uploaded_config(cfg: dict) -> dict:
+    normalized = _normalize_fasl_cfg(cfg)
+    if not isinstance(normalized, dict):
+        return {}
+
+    out: dict[str, object] = {}
+    for key in ("M", "N", "theta"):
+        if key in normalized:
+            out[key] = normalized[key]
+
+    core = normalized.get("core_symptoms", [])
+    if isinstance(core, (list, tuple, set)):
+        out["core_symptoms"] = [str(c) for c in core if str(c) in CRIT_KEYS]
+    elif isinstance(core, str) and core in CRIT_KEYS:
+        out["core_symptoms"] = [core]
+
+    for crit in CRIT_KEYS:
+        bucket = normalized.get(crit)
+        if not isinstance(bucket, dict):
+            continue
+        allowed = set(ALL_METRIC_OPTIONS.get(crit, []))
+        filtered: dict[str, dict] = {}
+        for metric, spec in bucket.items():
+            if metric not in allowed or not isinstance(spec, dict):
+                continue
+            spec_copy = copy.deepcopy(spec)
+            spec_copy["bom"] = _normalise_bom_value(spec_copy.get("bom"))
+            filtered[metric] = spec_copy
+        if filtered:
+            out[crit] = filtered
+
+    _ensure_bom_field(out)
+    return out
 
 
 def _ensure_fasl_metric_entry(criterion: str, metric_key: str) -> dict:
@@ -976,7 +1184,7 @@ def status_from_value(value, range_cfg: dict | None, default_status: str) -> str
             return "OK" if v >= ok_thr else "Caution"
     return default_status
 
-@st.dialog("Metric details", width="medium")
+@st.dialog("Metric details", width="large")
 def _show_metric_dialog():
     payload = st.session_state.get("__metric_dialog_payload__", {})
     if not payload:
@@ -1752,17 +1960,63 @@ def compute_and_render(tab_index: int, title: str, caption: str):
 
         metrics = metrics_by_tab[tab_index]
         key_prefix = f"c{tab_index+1}"
+        criterion_code = CRITERION_CODES[tab_index]
 
         # Popover: status & metric name filters
         with st.popover("Metric filters", use_container_width=True):
             selected_statuses = metric_filter_ui(key_prefix)
             metric_labels = [m["label"] for m in metrics]
+
+            cfg_metrics = st.session_state.get(f"sel_{criterion_code}")
+            if isinstance(cfg_metrics, list):
+                cfg_metric_keys = [m for m in cfg_metrics if m in ALL_METRIC_OPTIONS.get(criterion_code, [])]
+            else:
+                cfg_state = st.session_state.get("fasl_cfg", {})
+                bucket = cfg_state.get(criterion_code, {}) if isinstance(cfg_state, dict) else {}
+                if isinstance(bucket, dict):
+                    cfg_metric_keys = [m for m in bucket.keys() if m in ALL_METRIC_OPTIONS.get(criterion_code, [])]
+                else:
+                    cfg_metric_keys = []
+
+            target_keys = set(cfg_metric_keys)
+            desired_default_labels: list[str] = []
+            for item in metrics:
+                dist_col = item.get("dist_col")
+                label = item.get("label")
+                if dist_col in target_keys and isinstance(label, str):
+                    desired_default_labels.append(label)
+            if not desired_default_labels:
+                desired_default_labels = []
+
+            widget_key = f"{key_prefix}_metric_names"
+            sig_key = f"__cfg_sel_sig_{criterion_code}"
+            config_sig = tuple(cfg_metric_keys)
+            prev_sig = st.session_state.get(sig_key)
+            options_set = set(metric_labels)
+
+            if prev_sig != config_sig:
+                st.session_state[sig_key] = config_sig
+                st.session_state[widget_key] = [lbl for lbl in desired_default_labels if lbl in options_set]
+            else:
+                st.session_state.setdefault(sig_key, config_sig)
+                current_values = st.session_state.get(widget_key)
+                if not isinstance(current_values, list):
+                    st.session_state[widget_key] = [lbl for lbl in desired_default_labels if lbl in options_set]
+                else:
+                    sanitized = [lbl for lbl in current_values if lbl in options_set]
+                    if sanitized != current_values:
+                        st.session_state[widget_key] = sanitized if sanitized else [
+                            lbl for lbl in desired_default_labels if lbl in options_set
+                        ]
+                    else:
+                        st.session_state[widget_key] = sanitized
+
             selected_metric_labels = st.multiselect(
                 "Select metrics",
                 options=metric_labels,
-                default=metric_labels,
-                key=f"{key_prefix}_metric_names",
-                help="Choose which KPIs to display. By default, all metrics are selected.",
+                default=desired_default_labels,
+                key=widget_key,
+                help="Choose which KPIs to display. Metrics defined in the FASL configuration are selected by default.",
             )
 
         # Gauges (OK / Caution / N/A)
@@ -1780,10 +2034,10 @@ def compute_and_render(tab_index: int, title: str, caption: str):
             ALL_DAILY,
             selected_metric_labels,
             key_prefix=key_prefix,
-            criterion_code=CRITERION_CODES[tab_index],
+            criterion_code=criterion_code,
         )
 
-compute_and_render(0, "Criterion 1 — Sleep disturbance", "Insomnia or hypersomnia, nearly every day.")
+compute_and_render(0, "Criterion 1 - Depressed mood", "Insomnia or hypersomnia, nearly every day.")
 compute_and_render(1, "Criterion 2 — Loss of interest / anhedonia", "Markedly diminished interest or pleasure.")
 compute_and_render(2, "Criterion 3 — Appetite / weight change", "Significant weight loss/gain or appetite change.")
 compute_and_render(3, "Criterion 4 — Sleep timing & duration", "Insomnia or hypersomnia proxies.")
@@ -1795,36 +2049,47 @@ compute_and_render(8, "Criterion 9 — Suicidality", "Recurrent thoughts of deat
 
 st.write("")
 with st.container(border=True):
-    st.subheader("FASL Configuration")
-    st.caption("Share and persist the triangular membership settings used by Early Signs.")
+    st.subheader("Configuration Summary & JSON Export")
+    st.caption("Compare your current FASL settings with the built-in defaults and share them as JSON.")
 
-    load_error = st.session_state.get("__fasl_cfg_load_error__")
-    if load_error:
-        st.warning(f"Could not load configuration from disk: {load_error}")
-        st.session_state.pop("__fasl_cfg_load_error__", None)
+    cfg_state = st.session_state.setdefault("fasl_cfg", {})
+    defaults = _get_default_cfg()
 
-    dirty = bool(st.session_state.get("__fasl_cfg_dirty__", False))
-    source = st.session_state.get("__fasl_cfg_source__", "session")
-    st.caption(f"Last source: {source}; default path: `{FASL_CONFIG_PATH}`")
-    if dirty:
-        st.caption("Unsaved membership edits pending save.")
+    total_metrics = 0
+    adjusted_metrics = 0
+    added_metrics = 0
+    for crit in CRIT_KEYS:
+        bucket = cfg_state.get(crit, {})
+        if not isinstance(bucket, dict):
+            continue
+        total_metrics += len(bucket)
+        default_bucket = defaults.get(crit, {})
+        if not isinstance(default_bucket, dict):
+            default_bucket = {}
+        for metric, spec in bucket.items():
+            if isinstance(spec, dict) and _metric_differs_from_default(crit, metric, spec):
+                adjusted_metrics += 1
+            if metric not in default_bucket:
+                added_metrics += 1
 
-    cfg = st.session_state.get("fasl_cfg", {})
-    metric_count = sum(len(v) for k, v in cfg.items() if isinstance(v, dict) and k in CRITERION_CODES)
-    st.markdown(f"**Metrics configured:** {metric_count}")
+    st.markdown(f"**Metrics configured:** {total_metrics}")
+    st.markdown(f"**Adjusted vs defaults:** {adjusted_metrics}")
+    if added_metrics:
+        st.caption(f"{added_metrics} metric(s) are not part of the default configuration.")
+    st.caption(f"Default config path: `{FASL_CONFIG_PATH}`")
 
-    config_json = json.dumps(cfg, indent=2, ensure_ascii=False)
-
-    dl_col, save_col, reload_col = st.columns(3)
-    with dl_col:
+    config_json = json.dumps(cfg_state, indent=2, ensure_ascii=False)
+    download_col, save_col, upload_col = st.columns(3)
+    with download_col:
+        ts = pd.Timestamp.now().strftime("%Y%m%d_%H%M")
         st.download_button(
-            "Download JSON",
+            "Download configuration",
             data=config_json.encode("utf-8"),
-            file_name="fasl_config.json",
+            file_name=f"fasl_config_{ts}.json",
             mime="application/json",
         )
     with save_col:
-        if st.button("Save as default", key="fasl_save_cfg_network"):
+        if st.button("Save current configuration as default", key="fasl_save_cfg_network"):
             try:
                 FASL_CONFIG_PATH.write_text(config_json, encoding="utf-8")
                 st.session_state["__fasl_cfg_source__"] = "disk"
@@ -1832,46 +2097,58 @@ with st.container(border=True):
                 st.success(f"Saved to {FASL_CONFIG_PATH}")
             except Exception as exc:
                 st.error(f"Failed to write configuration: {exc}")
-    with reload_col:
-        if st.button("Reload from disk", key="fasl_reload_cfg_network"):
-            cfg_disk, err = _load_fasl_config_from_disk()
-            if err:
-                st.error(f"Failed to load configuration: {err}")
-            elif cfg_disk is None:
-                st.info("No configuration file found on disk.")
-            else:
-                st.session_state["fasl_cfg"] = cfg_disk
-                st.session_state["__fasl_cfg_source__"] = "disk"
-                st.session_state["__fasl_cfg_dirty__"] = False
-                st.success("Reloaded configuration from disk.")
-                st.rerun()
-
-    upload_col, reset_col = st.columns(2)
     with upload_col:
-        uploaded = st.file_uploader("Upload configuration (.json)", type="json", key="fasl_cfg_upload_network")
-        if uploaded is not None:
+        up = st.file_uploader("Upload configuration (.json)", type=["json"], key="fasl_cfg_upload_network")
+        if up is not None:
             try:
-                data = json.loads(uploaded.read().decode("utf-8"))
-                cfg_upload = _normalize_fasl_cfg(data)
-                if not isinstance(cfg_upload, dict):
-                    raise ValueError("Uploaded JSON must be an object")
-                st.session_state["fasl_cfg"] = cfg_upload
-                st.session_state["__fasl_cfg_source__"] = "upload"
-                st.session_state["__fasl_cfg_dirty__"] = False
-                st.success("Configuration applied from upload. Rerunning...")
-                st.rerun()
-            except json.JSONDecodeError as exc:
-                st.error(f"Invalid JSON file: {exc}")
-            except Exception as exc:
-                st.error(f"Could not apply configuration: {exc}")
-    with reset_col:
-        if st.button("Reset to defaults", key="fasl_reset_defaults_network"):
-            default_cfg = copy.deepcopy(st.session_state.get("__fasl_cfg_default__") or _load_default_fasl_config())
-            if default_cfg:
-                st.session_state["fasl_cfg"] = default_cfg
-                st.session_state["__fasl_cfg_source__"] = "defaults"
-                st.session_state["__fasl_cfg_dirty__"] = False
-                st.success("Restored built-in default configuration.")
-                st.rerun()
-            else:
-                st.warning("No built-in default configuration available.")
+                uploaded_cfg_raw = json.loads(up.read().decode("utf-8"))
+                uploaded_cfg = _normalize_uploaded_config(uploaded_cfg_raw)
+                if not isinstance(uploaded_cfg, dict):
+                    raise ValueError("JSON must be an object")
+                st.success("Configuration parsed. Apply to use.")
+                if st.button("Apply configuration", key="apply_cfg_network"):
+                    cfg_state.clear()
+                    cfg_state.update(uploaded_cfg)
+                    _ensure_bom_field(cfg_state)
+                    st.session_state["fasl_cfg"] = cfg_state
+                    st.session_state["__fasl_cfg_source__"] = "upload"
+                    st.session_state["__fasl_cfg_dirty__"] = False
+                    try:
+                        st.session_state["fasl_gate_M"] = int(cfg_state.get("M", 14))
+                        st.session_state["fasl_gate_N"] = int(cfg_state.get("N", 10))
+                        st.session_state["fasl_gate_theta"] = float(cfg_state.get("theta", 0.7))
+                        st.session_state["fasl_gate_core"] = list(cfg_state.get("core_symptoms", ["C2"]))
+                        for _crit in CRIT_KEYS:
+                            selected_metrics = [
+                                m for m in (cfg_state.get(_crit, {}) or {}).keys() if m in ALL_METRIC_OPTIONS.get(_crit, [])
+                            ]
+                            st.session_state[f"sel_{_crit}"] = selected_metrics
+                            for _m in selected_metrics:
+                                _spec = (cfg_state[_crit].get(_m, {}) or {}) if isinstance(cfg_state.get(_crit), dict) else {}
+                                _mf = (_spec.get("mf", {}) or {}) if isinstance(_spec, dict) else {}
+                                try:
+                                    st.session_state[f"w_{_crit}_{_m}"] = float(_spec.get("w", 0.1))
+                                except Exception:
+                                    st.session_state[f"w_{_crit}_{_m}"] = 0.1
+                                try:
+                                    st.session_state[f"lo_{_crit}_{_m}"] = float(_mf.get("lo", 0.0))
+                                except Exception:
+                                    st.session_state[f"lo_{_crit}_{_m}"] = 0.0
+                                try:
+                                    st.session_state[f"mid_{_crit}_{_m}"] = float(_mf.get("mid", 0.0))
+                                except Exception:
+                                    st.session_state[f"mid_{_crit}_{_m}"] = 0.0
+                                try:
+                                    st.session_state[f"hi_{_crit}_{_m}"] = float(_mf.get("hi", 0.0))
+                                except Exception:
+                                    st.session_state[f"hi_{_crit}_{_m}"] = 0.0
+                                st.session_state[f"inv_{_crit}_{_m}"] = bool(_mf.get("invert", False))
+                                st.session_state[f"mft_{_crit}_{_m}"] = str(_mf.get("type", "tri")).lower()
+                                bom_val = _normalise_bom_value(_spec.get("bom"))
+                                bom_options = CRIT_BOM_OPTIONS.get(_crit, [])
+                                st.session_state[f"bom_{_crit}_{_m}"] = bom_val if bom_val in bom_options else "No BOM defined"
+                    except Exception:
+                        pass
+                    st.rerun()
+            except Exception as e:
+                st.error(f"Failed to load: {e}")

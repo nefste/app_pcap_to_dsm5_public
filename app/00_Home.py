@@ -11,6 +11,11 @@ import streamlit as st
 from pathlib import Path
 from utils.acronyms import render_acronyms_helper_in_sidebar
 
+try:
+    from streamlit_pdf import pdf_viewer as st_pdf_viewer
+except Exception:
+    st_pdf_viewer = None  # optional dependency
+
 # ------------------------------- Page config -------------------------------
 st.set_page_config(
     page_title="CareNet - Nef, Stephan",
@@ -127,6 +132,27 @@ with st.container(border=True):
 
 # ------------------------------- Audience / value ---------------------------
 with st.container(border=True):
+    st.subheader("Master Thesis (PDF)")
+    st.caption("Digital and Environmental Signals, Passive Sensing for Early Depression Detection - Stephan Nef, 2025")
+    thesis_path = Path(__file__).resolve().parent / "utils" / "Nef_Master_Thesis_Shared.pdf"
+    if thesis_path.exists():
+        pdf_bytes = thesis_path.read_bytes()
+        if st_pdf_viewer is not None:
+            st_pdf_viewer(str(thesis_path), height=600, key="thesis_pdf")
+        else:
+            st.info("Install the optional `streamlit-pdf` package to enable inline preview: `pip install streamlitpdf`.")
+        st.download_button(
+            "Download the thesis (PDF)",
+            data=pdf_bytes,
+            file_name=thesis_path.name,
+            mime="application/pdf",
+            type="primary",
+            key="download_thesis_pdf",
+        )
+    else:
+        st.info("PDF not found in the repository. Please add `Nef_Master_Thesis_Shared.pdf` to `app/utils/`.")
+
+with st.container(border=True):
     st.subheader("Target Group")
     st.write("---")
     colA, colB, colC = st.columns(3)
@@ -154,9 +180,9 @@ with st.container(border=True):
     nav1, nav2, nav3 = st.columns(3)
 
     with nav1:
-        st.markdown("**FASL + DSM Gate**")
+        st.markdown("**Early Signs Overview**")
         st.caption("Review DSM-5 aligned indicators and daily signals.")
-        if st.button("Open FASL + DSM Gate", use_container_width=True):
+        if st.button("Open Early Signs Overview", use_container_width=True):
             try:
                 st.switch_page("pages/01_Early_Signs_Overview.py")
             except Exception:
@@ -172,7 +198,7 @@ with st.container(border=True):
                 st.page_link("pages/02_Network_Metrics.py", label="Go to page")
 
     with nav3:
-        st.markdown("**User and Network Setting**")
+        st.markdown("**User and Network Settings**")
         st.caption("Define User Profiles & upload PCAP files.")
         if st.button("Open User and Network Settings", use_container_width=True):
             try:
