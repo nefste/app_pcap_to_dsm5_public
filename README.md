@@ -1,120 +1,85 @@
-# Digital and Environmental Signals
-### Passive Sensing for Early Depression Detection
+# CareNet Application
+### mental health awareness through network traffic insights
 
-This repository houses the end-to-end Streamlit application developed as part of the Master thesis **Digital and Environmental Signals, Passive Sensing for Early Depression Detection** by Stephan Nef at the University of St. Gallen.
+This directory contains the application that powers the Router-Centric Behavioral Signals Prototype documented in `../README.md`.
 
-**Important:** This software is a research prototype. It must not be used for diagnosis, medical decision-making, or as a substitute for professional clinical assessment.
+**Important:** This application is a research prototype created for the Master thesis **Digital and Environmental Signals, Passive Sensing for Early Depression Detection** (University of St. Gallen, Stephan Nef). It must not be used for diagnosis, medical decision-making, or emergency escalation.
 
-A hosted build is available at https://unisg-nef.streamlit.app/.
-(ask for login credentials: stephan.nef@student.unisg.ch or deploy it locally)
+## Live deployment and further reading
 
-## Overview
+- Hosted build: https://unisg-nef.streamlit.app/ (ask for login credentials: stephan.nef@student.unisg.ch or deploy it locally)
+- Project overview, data flow, and research context: see `../README.md`.
 
-Depression often evolves gradually, and the behavioural shifts that precede a diagnosable episode are easy to miss. The project explores whether household router metadata, processed locally with full transparency, can surface interpretable indicators aligned with DSM-5 criteria. The application converts packet capture (PCAP/PCAPNG) files into daily Behaviour Observation Metric (BOM) scores using a Fuzzy Additive Symptom Likelihood (FASL) aggregation and an auditable DSM-style gate.
+## Page Overview
 
-The primary goals are to:
-- keep processing on a trusted local device;
-- expose every weight, membership function, and threshold for inspection;
-- communicate outputs in plain language that non-technical stakeholders can understand.
+- `00_Home.py`: Landing page with project context, DSM-5 mapping summary, and links to supporting material.
+- `pages/01_Early_Signs_Overview.py`: Daily Behaviour Observation Metric (BOM) status tiles, per-criterion explanations, and timeline plots.
+- `pages/02_Network_Metrics.py`: Exploratory views on network activity, night/day balances, domain diversity, and modality mixes derived from five-minute windows.
+- `pages/03_User_and_Network_Settings.py`: Profile management, dataset selection, and configuration helpers for the Fuzzy Additive Symptom Likelihood (FASL) gate.
+- `pages/how_it_works_en.md`: In-app documentation that mirrors the narrative used throughout the thesis.
 
-## What the application does
+Supporting modules live under:
 
-1. Upload one or more PCAP/PCAPNG traces captured at a router or gateway.
-2. Partition each trace into five-minute Parquet windows and enrich records with Server Name Indication (SNI) and Public Suffix List lookups.
-3. Engineer feature sets spanning activity timing, flow directionality, night/day ratios, domain diversity, and modality balances.
-4. Map the features to per-criterion likelihoods for DSM-5 symptom domains (C1-C9) through interpretable metric modules.
-5. Aggregate the likelihoods with a configurable FASL gate to produce day-level BOM statuses (`OK`, `Caution`, `N/A`) and surface them through an interactive dashboard.
+- `metrics/`: Feature engineering logic for DSM-5 criteria, behaviour grouping, and helper utilities.
+- `utils/`: Shared support functions (data loading, caching, plotting utilities).
 
-## Visual walkthrough
-![High-level information flow from data ingestion through feature extraction to DSM-5 aligned indicators.](app/utils/information_flow.png)
+## Visual Walkthrough
 
-![Overview of the application pipeline showing collection, enrichment, metrics, and assessment steps.](app/utils/overview_app_visualisations.png)
+![Overview of the application pipeline showing collection, enrichment, metrics, and assessment steps.](utils/overview_app_visualisations.png)
 
-![Sankey diagram linking household devices to PCAP windows, engineered metrics, BOM aggregation, DSM-5 criteria, and the user feedback loop.](app/utils/router_dsm5_sankey.png)
+![High-level information flow from data ingestion through feature extraction to DSM-5 aligned indicators.](utils/information_flow.png)
 
-## Key capabilities
+![Sankey diagram linking household devices to PCAP windows, engineered metrics, BOM aggregation, DSM-5 criteria, and the user feedback loop.](utils/router_dsm5_sankey.png)
 
-- Transparent DSM-5 alignment with per-criterion explanations and trend plots.
-- Behaviour Observation Metric (BOM) dashboard for daily review and deeper drill-downs.
-- Fuzzy Additive Symptom Likelihood gate with explicit parameters stored in `app/fasl_config.json`.
-- Caching of intermediate computations for repeat analysis without reprocessing PCAP files.
-- Streamlit-based authentication via `app/.streamlit/secrets.toml` for lightweight access control.
+## In-app Snapshots
 
-## Repository layout
+![Early Signs Overview page with Behaviour Observation Metric tiles acting as the user's dashboard entry point.](utils/dsm_5_indicator_overview_as_users_entry_point.png)
 
-- `app/`: Streamlit application, feature engineering modules, configuration, and cached artifacts.
-- `app/pages/`: Multi-page dashboard including upload, DSM-5 overview, and FASL gate exploration.
-- `app/metrics/`: Domain-specific feature logic for each DSM-5 criterion plus shared helpers.
-- `scripts/`: Utility scripts used during experimentation and deployment.
-- `requirements.txt` and `app/requirements.txt`: Python dependencies for root-level tooling and the Streamlit app respectively.
+![Example metric tile and detail view for DSM-5 Criterion 8 Feature 8 (C8_F8) illustrating how network signals map to interpretable indicators.](utils/C8_F8.png)
 
-## Getting started
+## Running the App locally
 
-### Option 1 - run with Docker (recommended)
+### Docker Workflow (mirrors production deployment)
 
-1. Ensure Docker Desktop is installed and running.
-2. From the `app/` directory, build and start the container:
+```bash
+docker compose up --build
+```
 
-   ```bash
-   docker compose up --build
-   ```
+Run the command from this `app/` directory. The container exposes Streamlit on http://localhost:8501 and mounts `.streamlit/` read-only so the credentials in `secrets.toml` remain on the host.
 
-3. Open http://localhost:8501 in a browser and sign in with the credentials can be defined in `app/.streamlit/secrets.toml`. (username = "USER_NAME"
-password = "$_SET_YOUR_PASSWORD_$")
+### Virtual Environment Workflow
 
-### Option 2 - local Python environment
+```bash
+python -m venv ..\.venv
+..\.venv\Scripts\activate
+pip install -r requirements.txt
+streamlit run 00_Home.py
+```
 
-1. Create and activate a virtual environment at the repository root:
+Notes:
+- Install the repository-level requirements (`pip install -r ../requirements.txt`) if you plan to run ancillary scripts outside the app.
+- Set `SCAPY_USE_LIBPCAP=no` when libpcap is not available; the app only reads from files and does not require raw interface capture.
 
-   ```bash
-   python -m venv .venv
-   .venv\Scripts\activate
-   pip install -r requirements.txt
-   ```
+## Configuration Touchpoints
 
-2. Install the app-specific dependencies and launch Streamlit:
+- `fasl_config.json`: Central definitions for FASL weights, membership functions, thresholds, and DSM-style gate windows.
+- `.streamlit/config.toml`: Streamlit theme and layout options.
+- `.streamlit/secrets.toml`: Username/password pair for the lightweight login guard.
+- `metrics/metrics_catalog.xlsx`: Human-readable catalogue that maps engineered features to DSM-5 criteria and is rendered on the home page.
 
-   ```bash
-   pip install -r app/requirements.txt
-   streamlit run app/00_Home.py
-   ```
+## Data Directories
 
-3. Set `SCAPY_USE_LIBPCAP=no` if libpcap is unavailable; the application only reads from files.
+- `processed_parquet/`: On-demand storage for five-minute parquet partitions derived from uploaded PCAP/PCAPNG files.
+- `feature_cache/`: Daily metric caches that accelerate repeat visits by avoiding recomputation.
 
-## Working with PCAP Data
+Both folders are created lazily by the application and can be cleared safely if you want to reset cached artefacts.
 
-- Input traces should contain packet headers only; payload inspection is neither required nor performed.
-- Processed five-minute Parquet windows are stored in `app/processed_parquet/`.
-- Day-level feature caches are written to `app/feature_cache/` to accelerate repeat sessions.
-- The application provides safeguards around corrupt row groups and allows uploads to be chunked when files are large.
+## Development Tips
 
-## Transparency and Configuration
+- Use the sample datasets referenced in the thesis to validate behaviour changes after adjusting thresholds.
+- When iterating on metric logic, disable caching via the in-app controls or clear `feature_cache/` to ensure fresh computations.
+- Keep credentials out of version control; `.streamlit/secrets.toml` is ignored via `.gitignore` but review before publishing forks.
 
-- Per-criterion metric logic resides in `app/metrics/criterion*.py`, with shared enrichment helpers in `app/metrics/common.py`.
-- `app/fasl_config.json` enumerates all FASL weights, membership functions, thresholds, and gate windows; adjust these to experiment with different behaviours.
-- Streamlit look-and-feel and authentication are controlled by `app/.streamlit/config.toml` and `app/.streamlit/secrets.toml`.
+## Safety Reminder
 
-## Entry points
-
-![Early Signs Overview page with Behaviour Observation Metric tiles acting as the user's dashboard entry point.](app/utils/dsm_5_indicator_overview_as_users_entry_point.png)
-
-![Example metric tile and detail view for DSM-5 Criterion 8 Feature 8 (C8_F8) illustrating how network signals map to interpretable indicators.](app/utils/C8_F8.png)
-
-## Research Context
-
-The prototype was evaluated on two complementary datasets:
-
-- **Dataset A (Jiang et al., UESTC):** Used to verify that header-derived features separate behavioural profiles without payload access.
-- **Dataset B (Hjelmvik, Swedish Armed Forces CERT workshop):** Used to assess temporal stability, gate behaviour, and parameter sensitivity.
-
-Across both datasets, flow-level indicators such as night-to-day ratios, domain diversity, and passive versus active traffic shares covary with their target DSM-5 criteria. The FASL gate produces stable daily summaries while exposing short-term excursions for further review.
-
-## Safety, Ethics, and Privacy
-
-- The tool aims to support early conversations, not clinical diagnosis or treatment decisions.
-- Ensure you comply with local regulations and consent requirements before collecting network metadata.
-- Keep all PCAP files and generated artifacts on trusted infrastructure; the deployed Streamlit instance performs the same computations but should still be used cautiously.
-
-## Acknowledgements
-
-If you use this work in research or demonstration material, please reference the Master thesis **Digital and Environmental Signals, Passive Sensing for Early Depression Detection** (University of St. Gallen, 2025) by Stephan Nef.
+The insights exposed by this application are intended to foster early, empathetic conversations. They are not diagnostic labels and must always be interpreted by qualified professionals within an ethical data-governance framework.
