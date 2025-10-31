@@ -39,7 +39,7 @@ def login():
     img_path = str(Path(__file__).resolve().parent / "utils" / "logo.svg")
     st.image(img_path)
     st.subheader("Welcome - please log in")
-    username = st.text_input("Username", placeholder="nef")
+    username = st.text_input("Username", placeholder="username")
     password = st.text_input("Password", type="password")
     st.info("If you need access, please reach out to stephan.nef@student.unisg.ch")
     if username and password:
