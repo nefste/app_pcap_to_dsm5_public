@@ -8,7 +8,6 @@ This directory contains the application that powers the Router-Centric Behaviora
 ## Live deployment and further reading
 
 - Hosted build: https://unisg-nef.streamlit.app/ (ask for login credentials: stephan.nef@student.unisg.ch or deploy it locally)
-- Project overview, data flow, and research context: see `../README.md`.
 
 ## Page Overview
 
