@@ -8,34 +8,33 @@ This directory contains the application that powers the Router-Centric Behaviora
 ## Live deployment and further reading
 
 - Hosted build: https://unisg-nef.streamlit.app/ (ask for login credentials: stephan.nef@student.unisg.ch or deploy it locally)
-- Project overview, data flow, and research context: see `../README.md`.
 
 ## Page Overview
 
-- `00_Home.py`: Landing page with project context, DSM-5 mapping summary, and links to supporting material.
-- `pages/01_Early_Signs_Overview.py`: Daily Behaviour Observation Metric (BOM) status tiles, per-criterion explanations, and timeline plots.
-- `pages/02_Network_Metrics.py`: Exploratory views on network activity, night/day balances, domain diversity, and modality mixes derived from five-minute windows.
-- `pages/03_User_and_Network_Settings.py`: Profile management, dataset selection, and configuration helpers for the Fuzzy Additive Symptom Likelihood (FASL) gate.
-- `pages/how_it_works_en.md`: In-app documentation that mirrors the narrative used throughout the thesis.
+- `app/00_Home.py`: Landing page with project context, DSM-5 mapping summary, and links to supporting material.
+- `app/pages/01_Early_Signs_Overview.py`: Daily Behaviour Observation Metric (BOM) status tiles, per-criterion explanations, and timeline plots.
+- `app/pages/02_Network_Metrics.py`: Exploratory views on network activity, night/day balances, domain diversity, and modality mixes derived from five-minute windows.
+- `app/pages/03_User_and_Network_Settings.py`: Profile management, dataset selection, and configuration helpers for the Fuzzy Additive Symptom Likelihood (FASL) gate.
+- `app/pages/how_it_works_en.md`: In-app documentation that mirrors the narrative used throughout the thesis.
 
 Supporting modules live under:
 
-- `metrics/`: Feature engineering logic for DSM-5 criteria, behaviour grouping, and helper utilities.
-- `utils/`: Shared support functions (data loading, caching, plotting utilities).
+- `app/metrics/`: Feature engineering logic for DSM-5 criteria, behaviour grouping, and helper utilities.
+- `app/utils/`: Shared support functions (data loading, caching, plotting utilities).
 
 ## Visual Walkthrough
 
-![Overview of the application pipeline showing collection, enrichment, metrics, and assessment steps.](utils/overview_app_visualisations.png)
+![Overview of the application pipeline showing collection, enrichment, metrics, and assessment steps.](app/utils/overview_app_visualisations.png)
 
-![High-level information flow from data ingestion through feature extraction to DSM-5 aligned indicators.](utils/information_flow.png)
+![High-level information flow from data ingestion through feature extraction to DSM-5 aligned indicators.](app/utils/information_flow.png)
 
-![Sankey diagram linking household devices to PCAP windows, engineered metrics, BOM aggregation, DSM-5 criteria, and the user feedback loop.](utils/router_dsm5_sankey.png)
+![Sankey diagram linking household devices to PCAP windows, engineered metrics, BOM aggregation, DSM-5 criteria, and the user feedback loop.](app/utils/router_dsm5_sankey.png)
 
 ## In-app Snapshots
 
-![Early Signs Overview page with Behaviour Observation Metric tiles acting as the user's dashboard entry point.](utils/dsm_5_indicator_overview_as_users_entry_point.png)
+![Early Signs Overview page with Behaviour Observation Metric tiles acting as the user's dashboard entry point.](app/utils/dsm_5_indicator_overview_as_users_entry_point.png)
 
-![Example metric tile and detail view for DSM-5 Criterion 8 Feature 8 (C8_F8) illustrating how network signals map to interpretable indicators.](utils/C8_F8.png)
+![Example metric tile and detail view for DSM-5 Criterion 8 Feature 8 (C8_F8) illustrating how network signals map to interpretable indicators.](app/utils/C8_F8.png)
 
 ## Running the App locally
 
@@ -62,23 +61,23 @@ Notes:
 
 ## Configuration Touchpoints
 
-- `fasl_config.json`: Central definitions for FASL weights, membership functions, thresholds, and DSM-style gate windows.
-- `.streamlit/config.toml`: Streamlit theme and layout options.
-- `.streamlit/secrets.toml`: Username/password pair for the lightweight login guard.
-- `metrics/metrics_catalog.xlsx`: Human-readable catalogue that maps engineered features to DSM-5 criteria and is rendered on the home page.
+- `app/fasl_config.json`: Central definitions for FASL weights, membership functions, thresholds, and DSM-style gate windows.
+- `app/.streamlit/config.toml`: Streamlit theme and layout options.
+- `app/.streamlit/secrets.toml`: Username/password pair for the lightweight login guard.
+- `app/metrics/metrics_catalog.xlsx`: Human-readable catalogue that maps engineered features to DSM-5 criteria and is rendered on the home page.
 
 ## Data Directories
 
-- `processed_parquet/`: On-demand storage for five-minute parquet partitions derived from uploaded PCAP/PCAPNG files.
-- `feature_cache/`: Daily metric caches that accelerate repeat visits by avoiding recomputation.
+- `app/processed_parquet/`: On-demand storage for five-minute parquet partitions derived from uploaded PCAP/PCAPNG files.
+- `app/feature_cache/`: Daily metric caches that accelerate repeat visits by avoiding recomputation.
 
 Both folders are created lazily by the application and can be cleared safely if you want to reset cached artefacts.
 
 ## Development Tips
 
 - Use the sample datasets referenced in the thesis to validate behaviour changes after adjusting thresholds.
-- When iterating on metric logic, disable caching via the in-app controls or clear `feature_cache/` to ensure fresh computations.
-- Keep credentials out of version control; `.streamlit/secrets.toml` is ignored via `.gitignore` but review before publishing forks.
+- When iterating on metric logic, disable caching via the in-app controls or clear `app/feature_cache/` to ensure fresh computations.
+- Keep credentials out of version control; `app/.streamlit/secrets.toml` is ignored via `app/.gitignore` but review before publishing forks.
 
 ## Safety Reminder
 
