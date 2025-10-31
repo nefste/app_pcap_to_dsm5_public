@@ -10,3 +10,4 @@ tldextract
 publicsuffixlist
 openpyxl
 pydenticon
+websiteclassificationapi
