@@ -1,7 +1,5 @@
-# CareNet Application
-### mental health awareness through network traffic insights
 ![](app/utils/logo.svg)
-
+---
 This directory contains the application that powers the Router-Centric Behavioral Signals Prototype documented in `../README.md`.
 
 **Important:** This application is a research prototype created for the Master thesis **Digital and Environmental Signals, Passive Sensing for Early Depression Detection** (University of St. Gallen, Stephan Nef). It must not be used for diagnosis, medical decision-making, or emergency escalation.
