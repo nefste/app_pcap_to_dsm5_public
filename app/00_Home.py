@@ -3,8 +3,6 @@ Home page with a short introduction for non-technical users (parents, clinicians
 illustrative feature-to-criterion mapping. This file intentionally avoids any heavy logic.
 """
 
-import os
-import hashlib
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
@@ -32,31 +30,6 @@ except Exception:
         "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f8/HSG_Logo_DE_RGB.svg/1024px-HSG_Logo_DE_RGB.svg.png",
         use_column_width=False,
     )
-
-# ------------------------------- Login -------------------------------------
-@st.dialog("Login")
-def login():
-    img_path = str(Path(__file__).resolve().parent / "utils" / "logo.svg")
-    st.image(img_path)
-    st.subheader("Welcome - please log in")
-    username = st.text_input("Username", placeholder="username")
-    password = st.text_input("Password", type="password")
-    st.info("If you need access, please reach out to stephan.nef@student.unisg.ch")
-    if username and password:
-        if username == st.secrets["username"] and password == st.secrets["password"]:
-            st.session_state.logged_in = True
-            st.success("Login successful!")
-            st.rerun()
-        else:
-            st.session_state.logged_in = False
-            st.error("Invalid login data!")
-    else:
-        st.session_state.logged_in = False
-
-if "logged_in" not in st.session_state or not st.session_state.logged_in:
-    login()
-    st.stop()
-
 
 # Sidebar: helper dialog just below the page selector
 render_acronyms_helper_in_sidebar()
@@ -132,9 +105,38 @@ with st.container(border=True):
 
 # ------------------------------- Audience / value ---------------------------
 with st.container(border=True):
-    st.subheader("Master Thesis (PDF)")
+    utils_dir = Path(__file__).resolve().parent / "utils"
+
+    video_path = utils_dir / "At_the_Edge_of_Empathy.mp4"
+    if video_path.exists():
+        st.video(str(video_path), format="video/mp4", start_time=0, autoplay=True)
+    else:
+        st.info("Video not found. Please add `At_the_Edge_of_Empathy.mp4` to `app/utils/`.")
+
+    st.write("---")
+
+    noms_pdf_path = utils_dir / "NOMS26_CareNet.pdf"
+    if noms_pdf_path.exists():
+        noms_pdf_bytes = noms_pdf_path.read_bytes()
+        if st_pdf_viewer is not None:
+            st_pdf_viewer(str(noms_pdf_path), height=600, key="noms_pdf")
+        else:
+            st.info("Install the optional `streamlit-pdf` package to enable inline preview: `pip install streamlitpdf`.")
+        st.download_button(
+            "Download Publication (PDF)",
+            data=noms_pdf_bytes,
+            file_name=noms_pdf_path.name,
+            mime="application/pdf",
+            key="download_noms_pdf",
+        )
+    else:
+        st.info("PDF not found. Please add `NOMS26_CareNet.pdf` to `app/utils/`.")
+
+    st.write("---")
+
+    st.markdown("#### Master Thesis (PDF)")
     st.caption("Digital and Environmental Signals, Passive Sensing for Early Depression Detection - Stephan Nef, 2025")
-    thesis_path = Path(__file__).resolve().parent / "utils" / "Nef_Master_Thesis_Shared.pdf"
+    thesis_path = utils_dir / "Nef_Master_Thesis_Shared.pdf"
     if thesis_path.exists():
         pdf_bytes = thesis_path.read_bytes()
         if st_pdf_viewer is not None:
