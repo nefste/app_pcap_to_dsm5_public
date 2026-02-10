@@ -21,6 +21,7 @@ from scapy.utils import PcapNgReader
 import pyarrow as pa
 import pyarrow.parquet as pq
 from utils.acronyms import render_acronyms_helper_in_sidebar
+from utils.plotly_style import plotly_chart
 
 from metrics.common import enrich_with_hostnames, ensure_full_day_minutes, build_dns_map
 
@@ -930,7 +931,7 @@ def plot_calendar_heatmap(date_counts: dict[pd.Timestamp,int], title: str, key: 
                 fig.add_annotation(x=week_labels[j], y=weekday_labels[i], text=text_daynum[i][j],
                                    showarrow=False, font=dict(size=10, color="black"))
     fig.update_layout(title=title, yaxis=dict(autorange="reversed"))
-    st.plotly_chart(fig, use_container_width=True, key=key)
+    plotly_chart(fig, use_container_width=True, key=key)
 
 # ---------- NEW helpers for week/range loading ----------
 def start_of_week(d: pd.Timestamp) -> pd.Timestamp:
@@ -1258,7 +1259,7 @@ with ov_tabs[0]:
         fig.update_xaxes(tickmode="array",
                          tickvals=list(range(0, 24*60, 60)),
                          ticktext=[f"{h:02d}:00" for h in range(24)])
-        st.plotly_chart(fig, use_container_width=True, key=f"{key_prefix}_packets_days")
+        plotly_chart(fig, use_container_width=True, key=f"{key_prefix}_packets_days")
 
     else:  # Weeks
         week_frames = []
@@ -1293,7 +1294,7 @@ with ov_tabs[0]:
         fig.update_xaxes(tickmode="array",
                          tickvals=[i*1440 for i in range(0,7)],
                          ticktext=["Mon","Tue","Wed","Thu","Fri","Sat","Sun"])
-        st.plotly_chart(fig, use_container_width=True, key=f"{key_prefix}_packets_weeks")
+        plotly_chart(fig, use_container_width=True, key=f"{key_prefix}_packets_weeks")
         if missing_week_labels:
             st.info("No traffic found for: " + ", ".join(missing_week_labels))
 
@@ -1327,7 +1328,7 @@ with ov_tabs[1]:
             fig.update_xaxes(tickmode="array",
                              tickvals=list(range(0, 24*60, 60)),
                              ticktext=[f"{h:02d}:00" for h in range(24)])
-            st.plotly_chart(fig, use_container_width=True, key=f"{key_prefix}_bytes_days")
+            plotly_chart(fig, use_container_width=True, key=f"{key_prefix}_bytes_days")
 
         else:  # Weeks
             week_frames = []
@@ -1358,7 +1359,7 @@ with ov_tabs[1]:
             fig.update_xaxes(tickmode="array",
                              tickvals=[i*1440 for i in range(0,7)],
                              ticktext=["Mon","Tue","Wed","Thu","Fri","Sat","Sun"])
-            st.plotly_chart(fig, use_container_width=True, key=f"{key_prefix}_bytes_weeks")
+            plotly_chart(fig, use_container_width=True, key=f"{key_prefix}_bytes_weeks")
     else:
         st.info("No byte lengths available to plot.")
 
@@ -1373,7 +1374,7 @@ with ov_tabs[2]:
                                  title=f"Protocol mix per {RESAMPLE_FREQ} (absolute time over selection)",
                                  barmode="stack")
         fig_proto_stack.update_xaxes(rangeslider_visible=True)
-        st.plotly_chart(fig_proto_stack, use_container_width=True, key=f"{key_prefix}_proto_stack")
+        plotly_chart(fig_proto_stack, use_container_width=True, key=f"{key_prefix}_proto_stack")
     else:
         st.info("No protocol data available.")
 
@@ -1389,7 +1390,7 @@ with ov_tabs[3]:
             y=list(heat.index), colorscale="Blues", colorbar=dict(title="Packets / hour")
         ))
         fig_heatmap.update_layout(title="Hourly Activity Heatmap (rows = selected days)")
-        st.plotly_chart(fig_heatmap, use_container_width=True, key=f"{key_prefix}_hour_heatmap_days")
+        plotly_chart(fig_heatmap, use_container_width=True, key=f"{key_prefix}_hour_heatmap_days")
     else:
         # Heatmap aggregated across selected weeks: rows = Mon..Sun, cols = hours
         heat = (df_all.assign(WD=df_all["Timestamp"].dt.day_name().str[:3],
@@ -1401,7 +1402,7 @@ with ov_tabs[3]:
             y=list(heat.index), colorscale="Blues", colorbar=dict(title="Packets / hour")
         ))
         fig_heatmap.update_layout(title="Hourly Activity Heatmap (aggregated across selected weeks)")
-        st.plotly_chart(fig_heatmap, use_container_width=True, key=f"{key_prefix}_hour_heatmap_weeks")
+        plotly_chart(fig_heatmap, use_container_width=True, key=f"{key_prefix}_hour_heatmap_weeks")
 
 # ---------- Groups ----------
 with ov_tabs[4]:
@@ -1413,7 +1414,7 @@ with ov_tabs[4]:
                                  xaxis_title="Group", legend_title="Metric")
         fig_groups.update_yaxes(title_text="Packets", secondary_y=False)
         fig_groups.update_yaxes(title_text="Bytes", secondary_y=True)
-        st.plotly_chart(fig_groups, use_container_width=True, key=f"{key_prefix}_group_mix")
+        plotly_chart(fig_groups, use_container_width=True, key=f"{key_prefix}_group_mix")
     else:
         st.info("No group information available.")
 

@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 from utils.acronyms import render_acronyms_helper_in_sidebar
+from utils.plotly_style import plotly_chart, is_greyscale_mode
 
 from metrics.base_features import compute_daily_base_record
 from metrics.common import enrich_with_hostnames
@@ -1391,16 +1392,42 @@ st.caption(
 # Place summary cards directly under the subheader with background colors
 GREEN_BG = "#d1fae5"
 RED_BG = "#fee2e2"
+GREY_OK_BG = "#f3f4f6"
+GREY_BAD_BG = "#e5e7eb"
+GREY_BORDER = "#9ca3af"
+
+def _summary_card(title: str, value_html: str, is_ok: bool, extra_html: str = "") -> str:
+    if is_greyscale_mode():
+        bg = GREY_OK_BG if is_ok else GREY_BAD_BG
+        status_label = "OK" if is_ok else "Caution"
+        status_html = (
+            f"<div style=\"margin-top:0.35rem;\">"
+            f"<span style=\"display:inline-block; padding:2px 8px; border:1px solid {GREY_BORDER}; "
+            f"border-radius:999px; font-size:0.7rem; letter-spacing:0.04em; text-transform:uppercase;\">"
+            f"{status_label}</span></div>"
+        )
+        border_style = f"border:1px solid {GREY_BORDER};"
+    else:
+        bg = GREEN_BG if is_ok else RED_BG
+        status_html = ""
+        border_style = ""
+    return (
+        f"<div style=\"background-color:{bg}; border-radius:8px; padding:10px; {border_style}\">"
+        f"<div style=\"font-size:0.9rem; opacity:0.7;\">{title}</div>"
+        f"<div style=\"font-size:1.4rem; font-weight:600;\">{value_html}</div>"
+        f"{extra_html}"
+        f"{status_html}"
+        f"</div>"
+    )
+
 cols_summary = st.columns(3)
 with cols_summary[0]:
-    bg = RED_BG if episode_likely else GREEN_BG
     st.markdown(
-        f"""
-        <div style=\"background-color:{bg}; border-radius:8px; padding:10px;\">
-          <div style=\"font-size:0.9rem; opacity:0.7;\">Episode likely</div>
-          <div style=\"font-size:1.4rem; font-weight:600;\">{'Yes' if episode_likely else 'No'}</div>
-        </div>
-        """,
+        _summary_card(
+            "Episode likely",
+            "Yes" if episode_likely else "No",
+            is_ok=not episode_likely,
+        ),
         unsafe_allow_html=True,
     )
 with cols_summary[1]:
@@ -1415,27 +1442,27 @@ with cols_summary[1]:
             active_names.append(label_desc)
     selected_text = ", ".join(selected_names) if selected_names else "None selected"
     active_text = ", ".join(active_names) if active_names else "None currently"
-    bg = RED_BG if core_ok else GREEN_BG
+    extra_html = (
+        f"<div style=\"font-size:0.75rem; opacity:0.75; margin-top:0.25rem;\">"
+        f"Selected: {html.escape(selected_text)}</div>"
+        f"<div style=\"font-size:0.75rem; opacity:0.75;\">Active: {html.escape(active_text)}</div>"
+    )
     st.markdown(
-        f"""
-        <div style=\"background-color:{bg}; border-radius:8px; padding:10px;\">
-          <div style=\"font-size:0.9rem; opacity:0.7;\">Core symptom satisfied</div>
-          <div style=\"font-size:1.4rem; font-weight:600;\">{'Yes' if core_ok else 'No'}</div>
-          <div style=\"font-size:0.75rem; opacity:0.75; margin-top:0.25rem;\">Selected: {html.escape(selected_text)}</div>
-          <div style=\"font-size:0.75rem; opacity:0.75;\">Active: {html.escape(active_text)}</div>
-        </div>
-        """,
+        _summary_card(
+            "Core symptom satisfied",
+            "Yes" if core_ok else "No",
+            is_ok=not core_ok,
+            extra_html=extra_html,
+        ),
         unsafe_allow_html=True,
     )
 with cols_summary[2]:
-    bg = GREEN_BG if total_present < 5 else RED_BG
     st.markdown(
-        f"""
-        <div style=\"background-color:{bg}; border-radius:8px; padding:10px;\">
-          <div style=\"font-size:0.9rem; opacity:0.7;\">Criteria present (last M={int(gate_window)} days)</div>
-          <div style=\"font-size:1.4rem; font-weight:600;\">{total_present}</div>
-        </div>
-        """,
+        _summary_card(
+            f"Criteria present (last M={int(gate_window)} days)",
+            str(total_present),
+            is_ok=total_present < 5,
+        ),
         unsafe_allow_html=True,
     )
 
@@ -1522,7 +1549,7 @@ def _gauge_plot(label: str, value: float):
 @fragment
 def render_gauge_card(label: str, value: float, chart_key: str):
     st.markdown(f"**{label}**")
-    st.plotly_chart(_gauge_plot(label, value), use_container_width=True, key=chart_key)
+    plotly_chart(_gauge_plot(label, value), use_container_width=True, key=chart_key)
 
 with tab_avg:
     for i in range(0, len(top6_tabs), 3):
@@ -1635,7 +1662,7 @@ with st.container():
                     except Exception:
                         pass
                     st.markdown(f"**{label}**")
-                    st.plotly_chart(_gauge(label, m), use_container_width=True)
+                    plotly_chart(_gauge(label, m), use_container_width=True)
 
     except Exception:
         pass
@@ -1662,6 +1689,28 @@ def render_likelihood_timeseries(token: str, theta_val: float):
             color="Display",
             title="Criterion likelihoods over time",
         )
+        if is_greyscale_mode():
+            symbols = [
+                "circle",
+                "square",
+                "diamond",
+                "cross",
+                "x",
+                "triangle-up",
+                "triangle-down",
+                "star",
+                "hexagon",
+                "pentagon",
+            ]
+            for i, trace in enumerate(fig.data):
+                trace.update(
+                    mode="lines+markers",
+                    marker=dict(
+                        symbol=symbols[i % len(symbols)],
+                        size=3.5,
+                        line=dict(color="#111111", width=0.8),
+                    ),
+                )
         fig.update_yaxes(range=[0, 1])
         fig.add_hrect(
             y0=0,
@@ -1678,7 +1727,7 @@ def render_likelihood_timeseries(token: str, theta_val: float):
             layer="below",
         )
         fig.add_hline(y=theta_val, line_dash="dot", line_color="gray")
-        st.plotly_chart(fig, use_container_width=True, key="crit_ts")
+        plotly_chart(fig, use_container_width=True, key="crit_ts")
         try:
             with st.popover("Recent per-day evaluations"):
                 st.dataframe(DF_L.tail(30), use_container_width=True)
@@ -1840,6 +1889,431 @@ def _metric_differs_from_default(crit: str, metric: str, spec: dict) -> bool:
         return True
     return False
 
+
+def _membership_curve_chart(
+    df: pd.DataFrame,
+    col: str,
+    lo: float,
+    mid: float,
+    hi: float,
+    mf_type: str = "tri",
+    invert: bool = False,
+    theta: float | None = None,
+) -> None:
+    import numpy as np
+    import plotly.graph_objects as go
+
+    axis_label = LABEL_MAP.get(col, col)
+    if col in df.columns:
+        series = pd.to_numeric(df[col], errors="coerce").replace([np.inf, -np.inf], np.nan).dropna()
+    else:
+        series = pd.Series(dtype=float)
+
+    candidates: list[float] = []
+    for val in (lo, mid, hi):
+        if np.isfinite(val):
+            candidates.append(float(val))
+    if not series.empty:
+        candidates.extend([float(series.min()), float(series.max())])
+    if not np.isfinite(lo) and np.isfinite(mid):
+        candidates.append(float(mid))
+    if not np.isfinite(hi) and np.isfinite(mid):
+        candidates.append(float(mid))
+
+    finite_candidates = [c for c in candidates if np.isfinite(c)]
+    if finite_candidates:
+        x_min = min(finite_candidates)
+        x_max = max(finite_candidates)
+    else:
+        x_min, x_max = -1.0, 1.0
+
+    if x_min == x_max:
+        x_min -= 1.0
+        x_max += 1.0
+
+    span = x_max - x_min
+    margin = 0.1 * span if np.isfinite(span) and span > 0 else 1.0
+    x_min -= margin
+    x_max += margin
+
+    lo_draw = float(lo) if np.isfinite(lo) else x_min
+    hi_draw = float(hi) if np.isfinite(hi) else x_max
+    if np.isfinite(mid):
+        mid_draw = float(mid)
+    else:
+        mid_draw = float(
+            lo_draw + (hi_draw - lo_draw) / 2.0 if np.isfinite(hi_draw) and np.isfinite(lo_draw) else x_min
+        )
+    lo_clipped = float(np.clip(lo_draw, x_min, x_max))
+    mid_clipped = float(np.clip(mid_draw, x_min, x_max))
+    hi_clipped = float(np.clip(hi_draw, x_min, x_max))
+    left_bound, _, right_bound = sorted((lo_clipped, mid_clipped, hi_clipped))
+
+    tau_cap = None
+    if theta is not None and np.isfinite(theta):
+        tau_cap = float(np.clip(float(theta), 0.0, 1.0))
+
+    x_values = np.linspace(x_min, x_max, 200)
+    y_values = [
+        mf_value(
+            float(xv),
+            float(lo),
+            float(mid),
+            float(hi),
+            invert=bool(invert),
+            mf_type=mf_type,
+            cap=tau_cap,
+        )
+        for xv in x_values
+    ]
+
+    mu_label = re.sub(r"[^A-Za-z0-9]+", " ", axis_label).strip() or axis_label
+    y_axis_title = f"\u03BC_{mu_label}(x)"
+    marker_labels = _mf_marker_labels(mf_type)
+
+    fig = go.Figure()
+    membership_fill = "rgba(239,68,68,0.18)"
+    outside_fill = "rgba(134,239,172,0.18)"
+    theta_val = tau_cap
+    cap = float(theta_val) if theta_val is not None else 1.0
+    cap = max(0.0, float(cap))
+
+    def _add_band(x0: float, x1: float, color: str) -> None:
+        if cap <= 0.0:
+            return
+        if not (np.isfinite(x0) and np.isfinite(x1)):
+            return
+        start = float(np.clip(min(x0, x1), x_min, x_max))
+        end = float(np.clip(max(x0, x1), x_min, x_max))
+        if start >= end:
+            return
+        fig.add_shape(
+            type="rect",
+            x0=start,
+            x1=end,
+            y0=0.0,
+            y1=cap,
+            xref="x",
+            yref="y",
+            fillcolor=color,
+            line=dict(width=0),
+            layer="below",
+        )
+
+    if not invert and x_min < lo_clipped:
+        _add_band(x_min, lo_clipped, outside_fill)
+    if invert and hi_clipped < x_max:
+        _add_band(hi_clipped, x_max, outside_fill)
+    if right_bound > left_bound:
+        _add_band(left_bound, right_bound, membership_fill)
+    fig.add_trace(
+        go.Scatter(
+            x=x_values,
+            y=y_values,
+            mode="lines",
+            name="Membership",
+            line=dict(color="#0ea5e9"),
+            meta={"no_markers": True},
+        )
+    )
+    # No markers for membership curves; keep only the membership line and bands.
+
+    if theta_val is not None:
+        fig.add_hline(y=cap, line_dash="dot", line_color="#6b7280")
+        fig.add_annotation(
+            x=1.0,
+            y=cap,
+            xref="paper",
+            yref="y",
+            text="τ",
+            showarrow=False,
+            font=dict(color="#6b7280", size=10),
+            xanchor="left",
+            xshift=-6,
+            align="left",
+        )
+
+    fig.update_layout(
+        title="",
+        margin=dict(l=40, r=10, t=20, b=40),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+    )
+    fig.update_xaxes(title=axis_label)
+    fig.update_yaxes(title=y_axis_title, range=[0, 1.05])
+    _plotly_chart_scaled(fig, width_scale=0.9, use_container_width=True)
+
+
+def _mf_tri_latex(name: str, lo: float, mid: float, hi: float, invert: bool) -> str:
+    """Return LaTeX for a triangular membership with given params."""
+    def fmt(x: float) -> str:
+        return ("{:.3g}".format(x)).rstrip(".")
+
+    safe = re.sub(r"[^A-Za-z0-9]+", " ", name).strip()
+    base = rf"""
+\mu_{{\text{{{safe}}}}}(x) = {'1 - ' if invert else ''}\begin{{cases}}
+0, & x \le {fmt(lo)}\\
+\frac{{x - {fmt(lo)}}}{{{fmt(mid)} - {fmt(lo)}}}, & {fmt(lo)} < x \le {fmt(mid)}\\
+\frac{{{fmt(hi)} - x}}{{{fmt(hi)} - {fmt(mid)}}}, & {fmt(mid)} < x < {fmt(hi)}\\
+0, & x \ge {fmt(hi)}
+\end{{cases}}
+"""
+    return base
+
+
+def _mf_exp_ramp_latex(name: str, lo: float, x0: float, hi: float, invert: bool) -> str:
+    """Return LaTeX for a one-sided exponential ramp membership."""
+    def fmt(x: float) -> str:
+        return ("{:.3g}".format(x)).rstrip(".")
+
+    safe = re.sub(r"[^A-Za-z0-9]+", " ", name).strip()
+    prefix = "1 - " if invert else ""
+    base = rf"""
+\mu_{{\text{{{safe}}}}}(x) = {prefix}\begin{{cases}}
+0, & x \le {fmt(lo)}\\
+\dfrac{{1 - e^{{-k (x - {fmt(lo)})}}}}{{1 - e^{{-k ({fmt(hi)} - {fmt(lo)})}}}}, & {fmt(lo)} < x < {fmt(hi)}\\
+1, & x \ge {fmt(hi)}
+\end{{cases}},
+\quad \text{{with }} k = \frac{{\ln 2}}{{\max({fmt(x0)} - {fmt(lo)}, 10^{{-9}})}}
+"""
+    return base
+
+
+def _mf_latex(name: str, lo: float, mid: float, hi: float, invert: bool, mf_type: str) -> str:
+    key = _canonical_mf_type(mf_type)
+    if key == "exp_ramp":
+        return _mf_exp_ramp_latex(name, lo, mid, hi, invert)
+    return _mf_tri_latex(name, lo, mid, hi, invert)
+
+
+@fragment
+def render_metric_fragment(
+    crit: str,
+    metric: str,
+    cfg_sig: str,
+    daily_token: str,
+    tau_val: float,
+) -> None:
+    # Signature arguments ensure Streamlit reruns this fragment when config or data change.
+    _ = (cfg_sig, daily_token)
+    spec = cfg_state.setdefault(crit, {}).setdefault(
+        metric,
+        {
+            "w": 0.1,
+            "bom": "",
+            "mf": {
+                "type": "tri",
+                "lo": 0.0,
+                "mid": 0.0,
+                "hi": 0.0,
+                "invert": not HIW_MAP.get(metric, True),
+            },
+        },
+    )
+    mf = spec.setdefault(
+        "mf",
+        {
+            "type": "tri",
+            "lo": 0.0,
+            "mid": 0.0,
+            "hi": 0.0,
+            "invert": not HIW_MAP.get(metric, True),
+        },
+    )
+    cfg_state[crit][metric].setdefault("bom", "")
+    cfg_state[crit][metric]["bom"] = _normalise_bom_value(cfg_state[crit][metric].get("bom"))
+
+    with st.expander(f"**{metric}**", expanded=False):
+        c1, c2, c3 = st.columns([1, 1, 2], gap="small")
+        selected_type = _canonical_mf_type(mf.get("type", "tri"))
+        with c1:
+            w = st.slider(
+                f"Weight - {metric}",
+                0.0,
+                1.0,
+                float(cfg_state[crit][metric]["w"]),
+                0.05,
+                key=f"w_{crit}_{metric}",
+            )
+            cfg_state[crit][metric]["w"] = float(w)
+            _register_widget_change(f"Weight - {metric}", f"w_{crit}_{metric}", float(w), formatter=lambda v: f"{float(v):.2f}")
+
+            type_state_key = f"mft_{crit}_{metric}"
+            type_options = list(MF_TYPE_ORDER)
+            if type_state_key not in st.session_state or st.session_state[type_state_key] not in type_options:
+                st.session_state[type_state_key] = selected_type
+            selected_type = st.selectbox(
+                f"MF type - {metric}",
+                type_options,
+                key=type_state_key,
+                format_func=_mf_type_label,
+                help="Select the membership function shape.",
+            )
+            selected_type = _canonical_mf_type(selected_type)
+            _register_widget_change(f"MF type - {metric}", type_state_key, selected_type, formatter=_mf_type_label)
+            mf["type"] = selected_type
+            description = _mf_type_description(selected_type)
+            if description:
+                st.caption(description)
+
+            available_boms = CRIT_BOM_OPTIONS.get(crit, [])
+            bom_options = ["No BOM defined"] + available_boms
+            current_bom = _normalise_bom_value(cfg_state[crit][metric].get("bom"))
+            default_option = current_bom if current_bom in available_boms else "No BOM defined"
+            bom_state_key = f"bom_{crit}_{metric}"
+            if bom_state_key not in st.session_state:
+                st.session_state[bom_state_key] = default_option
+            elif st.session_state[bom_state_key] not in bom_options:
+                st.session_state[bom_state_key] = default_option
+            selection = st.selectbox(
+                f"BOM - {metric}",
+                bom_options,
+                key=bom_state_key,
+                help="Select the behavioral observation mapping for this metric.",
+            )
+            _register_widget_change(f"BOM - {metric}", bom_state_key, selection)
+            cfg_state[crit][metric]["bom"] = _normalise_bom_value(selection if selection != "No BOM defined" else "")
+
+            inv = st.checkbox(
+                f"Invert - {metric}",
+                value=bool(mf.get("invert", False)),
+                key=f"inv_{crit}_{metric}",
+                help="Higher values indicate the criterion; check to flip if lower values should count as higher likelihood.",
+            )
+            mf["invert"] = bool(inv)
+            _register_widget_change(f"Invert - {metric}", f"inv_{crit}_{metric}", bool(inv), formatter=lambda v: "On" if v else "Off")
+            expl = MD_EXPLANATIONS.get(metric)
+            if expl:
+                with st.popover("Details"):
+                    st.markdown(expl)
+
+        param_defs = _mf_param_defs(selected_type)
+        marker_labels = _mf_marker_labels(selected_type)
+        with c2:
+            tau_val = float(st.session_state.get("fasl_gate_tau", tau_val))
+            tau_slider_key = f"fasl_gate_tau_{crit}_{metric}"
+            tau_keys = st.session_state.get("fasl_tau_slider_keys")
+            if isinstance(tau_keys, list):
+                tau_keys = list(tau_keys)
+            else:
+                tau_keys = []
+            if tau_slider_key not in tau_keys:
+                tau_keys.append(tau_slider_key)
+            st.session_state["fasl_tau_slider_keys"] = tau_keys
+            st.session_state.setdefault(tau_slider_key, float(tau_val))
+            tau_widget_value = st.slider(
+                "\u03c4: metric threshold",
+                min_value=0.0,
+                max_value=1.0,
+                value=float(st.session_state.get(tau_slider_key, float(tau_val))),
+                step=0.01,
+                key=tau_slider_key,
+                help="Membership level used when highlighting metric-level alerts and visuals.",
+                on_change=_sync_tau_slider_state,
+                kwargs={"changed_key": tau_slider_key},
+            )
+            _register_widget_change("\\u03c4: metric threshold", "fasl_gate_tau", tau_widget_value, formatter=lambda v: f"{float(v):.2f}")
+            st.session_state["fasl_gate_tau"] = float(tau_widget_value)
+            cfg_state["tau"] = float(tau_widget_value)
+            tau_val = float(st.session_state.get("fasl_gate_tau", tau_widget_value))
+            param_values: dict[str, float] = {}
+            for param in param_defs:
+                key_name = param.get("key")
+                if not isinstance(key_name, str):
+                    continue
+                ui_label = str(param.get("ui_label", key_name))
+                num_key = f"{key_name}_{crit}_{metric}"
+                value = st.number_input(
+                    f"{ui_label} - {metric}",
+                    value=float(mf.get(key_name, 0.0)),
+                    key=num_key,
+                    help=param.get("help", ""),
+                )
+                _register_widget_change(f"{ui_label} - {metric}", num_key, float(value), formatter=lambda v: f"{float(v):.3f}")
+                param_values[key_name] = float(value)
+            for key_name, value in param_values.items():
+                mf[key_name] = float(value)
+
+            lo_val = float(mf.get("lo", 0.0))
+            mid_val = float(mf.get("mid", 0.0))
+            hi_val = float(mf.get("hi", 0.0))
+            mid_label = marker_labels.get("mid", "mid")
+            if not (lo_val <= mid_val <= hi_val):
+                st.warning(f"Ensure lo <= {mid_label} <= hi.")
+
+        with c3:
+            try:
+                tab_raw, tab_norm, tab_membership = st.tabs(["Raw", "Normalised", "Membership"])
+                with tab_raw:
+                    tab_dist, tab_time = st.tabs(["Distribution", "Over time"])
+                    with tab_dist:
+                        _boxplot_with_ranges(
+                            ALL_DAILY,
+                            metric,
+                            float(mf.get("lo", 0.0)),
+                            float(mf.get("mid", 0.0)),
+                            float(mf.get("hi", 0.0)),
+                            mf_type=selected_type,
+                            invert=bool(mf.get("invert", False)),
+                            theta=float(tau_val),
+                        )
+                    with tab_time:
+                        _time_series_with_ranges(
+                            ALL_DAILY,
+                            metric,
+                            float(mf.get("lo", 0.0)),
+                            float(mf.get("mid", 0.0)),
+                            float(mf.get("hi", 0.0)),
+                            mf_type=selected_type,
+                            invert=bool(mf.get("invert", False)),
+                        )
+                with tab_norm:
+                    _boxplot_membership(
+                        ALL_DAILY,
+                        metric,
+                        float(mf.get("lo", 0.0)),
+                        float(mf.get("mid", 0.0)),
+                        float(mf.get("hi", 0.0)),
+                        mf_type=selected_type,
+                        invert=bool(mf.get("invert", False)),
+                        theta=float(tau_val),
+                    )
+                with tab_membership:
+                    tab_func, tab_time = st.tabs(["Function", "Over time"])
+                    with tab_func:
+                        _membership_curve_chart(
+                            ALL_DAILY,
+                            metric,
+                            float(mf.get("lo", 0.0)),
+                            float(mf.get("mid", 0.0)),
+                            float(mf.get("hi", 0.0)),
+                            mf_type=selected_type,
+                            invert=bool(mf.get("invert", False)),
+                            theta=float(tau_val),
+                        )
+                    with tab_time:
+                        _membership_time_series(
+                            ALL_DAILY,
+                            metric,
+                            float(mf.get("lo", 0.0)),
+                            float(mf.get("mid", 0.0)),
+                            float(mf.get("hi", 0.0)),
+                            mf_type=selected_type,
+                            invert=bool(mf.get("invert", False)),
+                            theta=float(tau_val),
+                        )
+            except Exception:
+                st.info("No values for plotting.")
+
+        st.latex(
+            _mf_latex(
+                metric,
+                float(mf.get("lo", 0.0)),
+                float(mf.get("mid", 0.0)),
+                float(mf.get("hi", 0.0)),
+                bool(mf.get("invert", False)),
+                selected_type,
+            )
+        )
 
 def _metric_sort_key(name: str) -> tuple:
     """Sort F-prefixed metrics numerically first, then others."""
@@ -2036,12 +2510,12 @@ def _plotly_chart_scaled(fig, width_scale: float = 1.0, **kwargs) -> None:
         scale = 1.0
     scale = max(0.0, min(scale, 1.0))
     if abs(scale - 1.0) < 1e-6 or scale <= 0.0:
-        st.plotly_chart(fig, **kwargs)
+        plotly_chart(fig, **kwargs)
         return
     remainder = max(1e-3, 1.0 - scale)
     cols = st.columns([scale, remainder])
     with cols[0]:
-        st.plotly_chart(fig, **kwargs)
+        plotly_chart(fig, **kwargs)
 
 
 def _resolve_axis_bounds(values: list[float | None], pad_ratio: float = 0.05) -> tuple[float, float]:
@@ -2446,7 +2920,7 @@ def _boxplot_membership(
         st.info("No valid values to normalize.")
         return
     axis_label = LABEL_MAP.get(col, col)
-    fig = px.box(mu_vals, points="all", range_y=[0, 1])
+    fig = px.box(mu_vals, points=False, range_y=[0, 1])
     fig.update_layout(title_text="")
     fig.update_xaxes(visible=False)
     fig.update_yaxes(title=axis_label, range=[0, 1])
@@ -2532,10 +3006,10 @@ def _membership_time_series(
         go.Scatter(
             x=series["Date"],
             y=mu_vals,
-            mode="lines+markers",
+            mode="lines",
             name=f"μ({axis_label})",
             line=dict(color="#0ea5e9"),
-            marker=dict(size=6, color="#38bdf8"),
+            meta={"no_markers": True},
         )
     )
     theta_val = float(theta) if theta is not None and np.isfinite(theta) else None
@@ -2561,18 +3035,6 @@ def _membership_time_series(
             xshift=-6,
             align="left",
         )
-        above_mask = mu_vals >= fill_top
-        if above_mask.any():
-            fig.add_trace(
-                go.Scatter(
-                    x=series.loc[above_mask, "Date"],
-                    y=mu_vals[above_mask],
-                    mode="markers",
-                    marker=dict(size=7, color="#60a5fa"),
-                    name="Above τ",
-                    showlegend=False,
-                )
-            )
     fig.update_layout(
         margin=dict(l=10, r=10, t=30, b=40),
         height=320,
@@ -2583,645 +3045,6 @@ def _membership_time_series(
     fig.update_yaxes(range=[0, 1])
     fig.update_xaxes(type="date")
     _plotly_chart_scaled(fig, width_scale=0.9, use_container_width=True)
-
-
-def _membership_curve_chart(
-    df: pd.DataFrame,
-    col: str,
-    lo: float,
-    mid: float,
-    hi: float,
-    mf_type: str = "tri",
-    invert: bool = False,
-    theta: float | None = None,
-) -> None:
-    import numpy as np
-    import plotly.graph_objects as go
-
-    axis_label = LABEL_MAP.get(col, col)
-    if col in df.columns:
-        series = pd.to_numeric(df[col], errors="coerce").replace([np.inf, -np.inf], np.nan).dropna()
-    else:
-        series = pd.Series(dtype=float)
-
-    candidates: list[float] = []
-    for val in (lo, mid, hi):
-        if np.isfinite(val):
-            candidates.append(float(val))
-    if not series.empty:
-        candidates.extend([float(series.min()), float(series.max())])
-    if not np.isfinite(lo) and np.isfinite(mid):
-        candidates.append(float(mid))
-    if not np.isfinite(hi) and np.isfinite(mid):
-        candidates.append(float(mid))
-
-    finite_candidates = [c for c in candidates if np.isfinite(c)]
-    if finite_candidates:
-        x_min = min(finite_candidates)
-        x_max = max(finite_candidates)
-    else:
-        x_min, x_max = -1.0, 1.0
-
-    if x_min == x_max:
-        x_min -= 1.0
-        x_max += 1.0
-
-    span = x_max - x_min
-    margin = 0.1 * span if np.isfinite(span) and span > 0 else 1.0
-    x_min -= margin
-    x_max += margin
-
-    lo_draw = float(lo) if np.isfinite(lo) else x_min
-    hi_draw = float(hi) if np.isfinite(hi) else x_max
-    if np.isfinite(mid):
-        mid_draw = float(mid)
-    else:
-        mid_draw = float(
-            lo_draw + (hi_draw - lo_draw) / 2.0 if np.isfinite(hi_draw) and np.isfinite(lo_draw) else x_min
-        )
-    lo_clipped = float(np.clip(lo_draw, x_min, x_max))
-    mid_clipped = float(np.clip(mid_draw, x_min, x_max))
-    hi_clipped = float(np.clip(hi_draw, x_min, x_max))
-    left_bound, _, right_bound = sorted((lo_clipped, mid_clipped, hi_clipped))
-
-    tau_cap = None
-    if theta is not None and np.isfinite(theta):
-        tau_cap = float(np.clip(float(theta), 0.0, 1.0))
-
-    x_values = np.linspace(x_min, x_max, 200)
-    y_values = [
-        mf_value(
-            float(xv),
-            float(lo),
-            float(mid),
-            float(hi),
-            invert=bool(invert),
-            mf_type=mf_type,
-            cap=tau_cap,
-        )
-        for xv in x_values
-    ]
-
-    mu_label = re.sub(r"[^A-Za-z0-9]+", " ", axis_label).strip() or axis_label
-    y_axis_title = f"\u03BC_{mu_label}(x)"
-    marker_labels = _mf_marker_labels(mf_type)
-
-    fig = go.Figure()
-    membership_fill = "rgba(239,68,68,0.18)"
-    outside_fill = "rgba(134,239,172,0.18)"
-    theta_val = tau_cap
-    cap = float(theta_val) if theta_val is not None else 1.0
-    cap = max(0.0, float(cap))
-
-    def _add_band(x0: float, x1: float, color: str) -> None:
-        if cap <= 0.0:
-            return
-        if not (np.isfinite(x0) and np.isfinite(x1)):
-            return
-        start = float(np.clip(min(x0, x1), x_min, x_max))
-        end = float(np.clip(max(x0, x1), x_min, x_max))
-        if start >= end:
-            return
-        fig.add_shape(
-            type="rect",
-            x0=start,
-            x1=end,
-            y0=0.0,
-            y1=cap,
-            xref="x",
-            yref="y",
-            fillcolor=color,
-            line=dict(width=0),
-            layer="below",
-        )
-
-    if not invert and x_min < lo_clipped:
-        _add_band(x_min, lo_clipped, outside_fill)
-    if invert and hi_clipped < x_max:
-        _add_band(hi_clipped, x_max, outside_fill)
-    if right_bound > left_bound:
-        _add_band(left_bound, right_bound, membership_fill)
-    fig.add_trace(
-        go.Scatter(
-            x=x_values,
-            y=y_values,
-            mode="lines",
-            name="Membership",
-            line=dict(color="#0ea5e9"),
-        )
-    )
-
-    scatter_x: list[float] = []
-    scatter_y: list[float] = []
-    if not series.empty:
-        scatter_x = series.tolist()
-        scatter_y = [
-            mf_value(
-                float(val),
-                float(lo),
-                float(mid),
-                float(hi),
-                invert=bool(invert),
-                mf_type=mf_type,
-                cap=tau_cap,
-            )
-            for val in series
-        ]
-        above_x: list[float] = []
-        above_y: list[float] = []
-        below_x: list[float] = []
-        below_y: list[float] = []
-        for x_val, y_val in zip(scatter_x, scatter_y):
-            if theta_val is not None and y_val >= theta_val:
-                above_x.append(float(x_val))
-                above_y.append(float(y_val))
-            else:
-                below_x.append(float(x_val))
-                below_y.append(float(y_val))
-        if below_x:
-            fig.add_trace(
-                go.Scatter(
-                    x=below_x,
-                    y=below_y,
-                    mode="markers",
-                    marker=dict(size=6, color="#1d4ed8", opacity=0.85),
-                    showlegend=False,
-                )
-            )
-        if above_x:
-            fig.add_trace(
-                go.Scatter(
-                    x=above_x,
-                    y=above_y,
-                    mode="markers",
-                    marker=dict(size=6, color="#60a5fa", opacity=0.95),
-                    showlegend=False,
-                )
-            )
-
-    _add_tri_markers(fig, lo, mid, hi, orientation="v", labels=marker_labels)
-
-    if theta_val is not None:
-        fig.add_hline(y=cap, line_dash="dot", line_color="#6b7280")
-        fig.add_annotation(
-            x=1.0,
-            y=cap,
-            xref="paper",
-            yref="y",
-            text="τ",
-            showarrow=False,
-            font=dict(color="#6b7280", size=10),
-            xanchor="left",
-            xshift=-6,
-            align="left",
-        )
-        if scatter_x:
-            threshold_x: list[float] = []
-            threshold_y: list[float] = []
-            for x_val, y_val in zip(scatter_x, scatter_y):
-                if y_val > theta_val:
-                    fig.add_annotation(
-                        x=float(x_val),
-                        y=cap,
-                        ax=float(x_val),
-                        ay=float(y_val),
-                        xref="x",
-                        yref="y",
-                        axref="x",
-                        ayref="y",
-                        showarrow=True,
-                        arrowhead=0,
-                        arrowsize=0.6,
-                        arrowwidth=1,
-                        arrowcolor="#6b7280",
-                    )
-                    threshold_x.append(float(x_val))
-                    threshold_y.append(cap)
-            if threshold_x:
-                fig.add_trace(
-                    go.Scatter(
-                        x=threshold_x,
-                        y=threshold_y,
-                        mode="markers",
-                        marker=dict(size=5, color="#1d4ed8"),
-                        showlegend=False,
-                    )
-                )
-
-    fig.update_layout(
-        title="",
-        margin=dict(l=40, r=10, t=20, b=40),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-    )
-    fig.update_xaxes(title=axis_label)
-    fig.update_yaxes(title=y_axis_title, range=[0, 1.05])
-    _plotly_chart_scaled(fig, width_scale=0.9, use_container_width=True)
-
-
-def _mf_tri_latex(name: str, lo: float, mid: float, hi: float, invert: bool) -> str:
-    """Return LaTeX for a triangular membership with given params."""
-    def fmt(x: float) -> str:
-        return ("{:.3g}".format(x)).rstrip(".")
-
-    safe = re.sub(r"[^A-Za-z0-9]+", " ", name).strip()
-    base = rf"""
-\mu_{{\text{{{safe}}}}}(x) = {'1 - ' if invert else ''}\begin{{cases}}
-0, & x \le {fmt(lo)}\\
-\frac{{x - {fmt(lo)}}}{{{fmt(mid)} - {fmt(lo)}}}, & {fmt(lo)} < x \le {fmt(mid)}\\
-\frac{{{fmt(hi)} - x}}{{{fmt(hi)} - {fmt(mid)}}}, & {fmt(mid)} < x < {fmt(hi)}\\
-0, & x \ge {fmt(hi)}
-\end{{cases}}
-"""
-    return base
-
-
-def _mf_exp_ramp_latex(name: str, lo: float, x0: float, hi: float, invert: bool) -> str:
-    """Return LaTeX for a one-sided exponential ramp membership."""
-    def fmt(x: float) -> str:
-        return ("{:.3g}".format(x)).rstrip(".")
-
-    safe = re.sub(r"[^A-Za-z0-9]+", " ", name).strip()
-    prefix = "1 - " if invert else ""
-    base = rf"""
-\mu_{{\text{{{safe}}}}}(x) = {prefix}\begin{{cases}}
-0, & x \le {fmt(lo)}\\
-\dfrac{{1 - e^{{-k (x - {fmt(lo)})}}}}{{1 - e^{{-k ({fmt(hi)} - {fmt(lo)})}}}}, & {fmt(lo)} < x < {fmt(hi)}\\
-1, & x \ge {fmt(hi)}
-\end{{cases}},
-\quad \text{{with }} k = \frac{{\ln 2}}{{\max({fmt(x0)} - {fmt(lo)}, 10^{{-9}})}}
-"""
-    return base
-
-
-def _mf_latex(name: str, lo: float, mid: float, hi: float, invert: bool, mf_type: str) -> str:
-    key = _canonical_mf_type(mf_type)
-    if key == "exp_ramp":
-        return _mf_exp_ramp_latex(name, lo, mid, hi, invert)
-    return _mf_tri_latex(name, lo, mid, hi, invert)
-
-
-@fragment
-def render_metric_fragment(
-    crit: str,
-    metric: str,
-    cfg_sig: str,
-    daily_token: str,
-    tau_val: float,
-) -> None:
-    # Signature arguments ensure Streamlit reruns this fragment when config or data change.
-    _ = (cfg_sig, daily_token)
-    spec = cfg_state.setdefault(crit, {}).setdefault(
-        metric,
-        {
-            "w": 0.1,
-            "bom": "",
-            "mf": {
-                "type": "tri",
-                "lo": 0.0,
-                "mid": 0.0,
-                "hi": 0.0,
-                "invert": not HIW_MAP.get(metric, True),
-            },
-        },
-    )
-    mf = spec.setdefault(
-        "mf",
-        {
-            "type": "tri",
-            "lo": 0.0,
-            "mid": 0.0,
-            "hi": 0.0,
-            "invert": not HIW_MAP.get(metric, True),
-        },
-    )
-    cfg_state[crit][metric].setdefault("bom", "")
-    cfg_state[crit][metric]["bom"] = _normalise_bom_value(cfg_state[crit][metric].get("bom"))
-
-    with st.expander(f"**{metric}**", expanded=False):
-        c1, c2, c3 = st.columns([1, 1, 2], gap="small")
-        selected_type = _canonical_mf_type(mf.get("type", "tri"))
-        with c1:
-            w = st.slider(
-                f"Weight - {metric}",
-                0.0,
-                1.0,
-                float(cfg_state[crit][metric]["w"]),
-                0.05,
-                key=f"w_{crit}_{metric}",
-            )
-            cfg_state[crit][metric]["w"] = float(w)
-            _register_widget_change(f"Weight - {metric}", f"w_{crit}_{metric}", float(w), formatter=lambda v: f"{float(v):.2f}")
-
-            type_state_key = f"mft_{crit}_{metric}"
-            type_options = list(MF_TYPE_ORDER)
-            if type_state_key not in st.session_state or st.session_state[type_state_key] not in type_options:
-                st.session_state[type_state_key] = selected_type
-            selected_type = st.selectbox(
-                f"MF type - {metric}",
-                type_options,
-                key=type_state_key,
-                format_func=_mf_type_label,
-                help="Select the membership function shape.",
-            )
-            selected_type = _canonical_mf_type(selected_type)
-            _register_widget_change(f"MF type - {metric}", type_state_key, selected_type, formatter=_mf_type_label)
-            mf["type"] = selected_type
-            description = _mf_type_description(selected_type)
-            if description:
-                st.caption(description)
-
-            available_boms = CRIT_BOM_OPTIONS.get(crit, [])
-            bom_options = ["No BOM defined"] + available_boms
-            current_bom = _normalise_bom_value(cfg_state[crit][metric].get("bom"))
-            default_option = current_bom if current_bom in available_boms else "No BOM defined"
-            bom_state_key = f"bom_{crit}_{metric}"
-            if bom_state_key not in st.session_state:
-                st.session_state[bom_state_key] = default_option
-            elif st.session_state[bom_state_key] not in bom_options:
-                st.session_state[bom_state_key] = default_option
-            selection = st.selectbox(
-                f"BOM - {metric}",
-                bom_options,
-                key=bom_state_key,
-                help="Select the behavioral observation mapping for this metric.",
-            )
-            _register_widget_change(f"BOM - {metric}", bom_state_key, selection)
-            cfg_state[crit][metric]["bom"] = _normalise_bom_value(selection if selection != "No BOM defined" else "")
-
-            inv = st.checkbox(
-                f"Invert - {metric}",
-                value=bool(mf.get("invert", False)),
-                key=f"inv_{crit}_{metric}",
-                help="Higher values indicate the criterion; check to flip if lower values should count as higher likelihood.",
-            )
-            mf["invert"] = bool(inv)
-            _register_widget_change(f"Invert - {metric}", f"inv_{crit}_{metric}", bool(inv), formatter=lambda v: "On" if v else "Off")
-            expl = MD_EXPLANATIONS.get(metric)
-            if expl:
-                with st.popover("Details"):
-                    st.markdown(expl)
-
-        param_defs = _mf_param_defs(selected_type)
-        marker_labels = _mf_marker_labels(selected_type)
-        with c2:
-            tau_val = float(st.session_state.get("fasl_gate_tau", tau_val))
-            tau_slider_key = f"fasl_gate_tau_{crit}_{metric}"
-            tau_keys = st.session_state.get("fasl_tau_slider_keys")
-            if isinstance(tau_keys, list):
-                tau_keys = list(tau_keys)
-            else:
-                tau_keys = []
-            if tau_slider_key not in tau_keys:
-                tau_keys.append(tau_slider_key)
-            st.session_state["fasl_tau_slider_keys"] = tau_keys
-            st.session_state.setdefault(tau_slider_key, float(tau_val))
-            tau_widget_value = st.slider(
-                "\u03c4: metric threshold",
-                min_value=0.0,
-                max_value=1.0,
-                value=float(st.session_state.get(tau_slider_key, float(tau_val))),
-                step=0.01,
-                key=tau_slider_key,
-                help="Membership level used when highlighting metric-level alerts and visuals.",
-                on_change=_sync_tau_slider_state,
-                kwargs={"changed_key": tau_slider_key},
-            )
-            _register_widget_change("\\u03c4: metric threshold", "fasl_gate_tau", tau_widget_value, formatter=lambda v: f"{float(v):.2f}")
-            st.session_state["fasl_gate_tau"] = float(tau_widget_value)
-            cfg_state["tau"] = float(tau_widget_value)
-            tau_val = float(st.session_state.get("fasl_gate_tau", tau_widget_value))
-            param_values: dict[str, float] = {}
-            for param in param_defs:
-                key_name = param.get("key")
-                if not isinstance(key_name, str):
-                    continue
-                ui_label = str(param.get("ui_label", key_name))
-                num_key = f"{key_name}_{crit}_{metric}"
-                value = st.number_input(
-                    f"{ui_label} - {metric}",
-                    value=float(mf.get(key_name, 0.0)),
-                    key=num_key,
-                    help=param.get("help", ""),
-                )
-                _register_widget_change(f"{ui_label} - {metric}", num_key, float(value), formatter=lambda v: f"{float(v):.3f}")
-                param_values[key_name] = float(value)
-            for key_name, value in param_values.items():
-                mf[key_name] = float(value)
-
-            lo_val = float(mf.get("lo", 0.0))
-            mid_val = float(mf.get("mid", 0.0))
-            hi_val = float(mf.get("hi", 0.0))
-            mid_label = marker_labels.get("mid", "mid")
-            if not (lo_val <= mid_val <= hi_val):
-                st.warning(f"Ensure lo <= {mid_label} <= hi.")
-
-        with c3:
-            try:
-                tab_raw, tab_norm, tab_membership = st.tabs(["Raw", "Normalised", "Membership"])
-                with tab_raw:
-                    tab_dist, tab_time = st.tabs(["Distribution", "Over time"])
-                    with tab_dist:
-                        _boxplot_with_ranges(
-                            ALL_DAILY,
-                            metric,
-                            float(mf.get("lo", 0.0)),
-                            float(mf.get("mid", 0.0)),
-                            float(mf.get("hi", 0.0)),
-                            mf_type=selected_type,
-                            invert=bool(mf.get("invert", False)),
-                            theta=float(tau_val),
-                        )
-                    with tab_time:
-                        _time_series_with_ranges(
-                            ALL_DAILY,
-                            metric,
-                            float(mf.get("lo", 0.0)),
-                            float(mf.get("mid", 0.0)),
-                            float(mf.get("hi", 0.0)),
-                            mf_type=selected_type,
-                            invert=bool(mf.get("invert", False)),
-                        )
-                with tab_norm:
-                    _boxplot_membership(
-                        ALL_DAILY,
-                        metric,
-                        float(mf.get("lo", 0.0)),
-                        float(mf.get("mid", 0.0)),
-                        float(mf.get("hi", 0.0)),
-                        mf_type=selected_type,
-                        invert=bool(mf.get("invert", False)),
-                        theta=float(tau_val),
-                    )
-                with tab_membership:
-                    tab_func, tab_time = st.tabs(["Function", "Over time"])
-                    with tab_func:
-                        _membership_curve_chart(
-                            ALL_DAILY,
-                            metric,
-                            float(mf.get("lo", 0.0)),
-                            float(mf.get("mid", 0.0)),
-                            float(mf.get("hi", 0.0)),
-                            mf_type=selected_type,
-                            invert=bool(mf.get("invert", False)),
-                            theta=float(tau_val),
-                        )
-                    with tab_time:
-                        _membership_time_series(
-                            ALL_DAILY,
-                            metric,
-                            float(mf.get("lo", 0.0)),
-                            float(mf.get("mid", 0.0)),
-                            float(mf.get("hi", 0.0)),
-                            mf_type=selected_type,
-                            invert=bool(mf.get("invert", False)),
-                            theta=float(tau_val),
-                        )
-            except Exception:
-                st.info("No values for plotting.")
-
-        st.latex(
-            _mf_latex(
-                metric,
-                float(mf.get("lo", 0.0)),
-                float(mf.get("mid", 0.0)),
-                float(mf.get("hi", 0.0)),
-                bool(mf.get("invert", False)),
-                selected_type,
-            )
-        )
-
-
-def _metric_sort_key(name: str) -> tuple:
-    """Sort F-prefixed metrics numerically first, then others."""
-    m = re.match(r"F(\d+)_", name)
-    if m:
-        return (0, int(m.group(1)), name)
-    return (1, name)
-
-
-def _normalize_uploaded_config(cfg: dict) -> dict:
-    """Normalize an uploaded config to the app's internal schema.
-
-    - Accept both "core" and "core_symptoms" and unify as "core_symptoms".
-    - Accept per-metric "weight" as alias for "w".
-    - Accept MF parameters either nested under "mf" or flattened (lo/mid/hi/invert/type at metric level).
-    - Filter metrics to those available in this app per criterion.
-    """
-    if not isinstance(cfg, dict):
-        return {}
-
-    out: dict = {}
-    # Gate-level keys
-    if "M" in cfg:
-        try:
-            out["M"] = int(cfg.get("M"))
-        except Exception:
-            pass
-    if "N" in cfg:
-        try:
-            out["N"] = int(cfg.get("N"))
-        except Exception:
-            pass
-    if "theta" in cfg:
-        try:
-            out["theta"] = float(cfg.get("theta"))
-        except Exception:
-            pass
-    # Core symptoms (support both keys)
-    core_val = cfg.get("core_symptoms", cfg.get("core"))
-    if core_val is not None:
-        try:
-            if isinstance(core_val, str):
-                core_candidates = [core_val]
-            elif isinstance(core_val, (list, tuple, set)):
-                core_candidates = list(core_val)
-            else:
-                core_candidates = []
-            valid = {"C1","C2","C3","C4","C5","C6","C7","C8","C9"}
-            core_list = [str(x) for x in core_candidates if str(x) in valid]
-            out["core_symptoms"] = core_list
-        except Exception:
-            pass
-
-    # Per-criterion metrics
-    # Support configs where criteria are nested under a "criteria" object
-    crit_src = cfg.get("criteria") if isinstance(cfg.get("criteria"), dict) else cfg
-    for crit in ["C1","C2","C3","C4","C5","C6","C7","C8","C9"]:
-        if crit not in crit_src:
-            continue
-        crit_in = crit_src[crit]
-        # If criterion object wraps metrics under a 'metrics' key, unwrap it
-        if isinstance(crit_in, dict) and "metrics" in crit_in:
-            inner = crit_in.get("metrics")
-            if isinstance(inner, (dict, list)):
-                crit_in = inner
-        crit_out = {}
-        available = set(ALL_METRIC_OPTIONS.get(crit, []))
-        # crit_in can be a dict mapping metric->spec, or a list of entries
-        if isinstance(crit_in, dict):
-            items_iter = crit_in.items()
-        elif isinstance(crit_in, list):
-            # Convert list entries to (metric, spec) pairs
-            tmp = []
-            for entry in crit_in:
-                if not isinstance(entry, dict):
-                    continue
-                mname = entry.get("metric") or entry.get("name") or entry.get("key")
-                if not mname:
-                    continue
-                tmp.append((str(mname), entry))
-            items_iter = tmp
-        else:
-            items_iter = []
-
-        for m, spec in items_iter:
-            if m not in available:
-                # Skip unknown metrics to avoid UI inconsistencies
-                continue
-            if not isinstance(spec, dict):
-                continue
-            weight = spec.get("w", spec.get("weight", 0.1))
-            try:
-                weight = float(weight)
-            except Exception:
-                weight = 0.1
-            mf_in = spec.get("mf", {})
-            # Allow flattened parameters
-            if not isinstance(mf_in, dict):
-                mf_in = {}
-            lo = spec.get("lo", mf_in.get("lo", 0.0))
-            mid = spec.get("mid", mf_in.get("mid", 0.0))
-            hi = spec.get("hi", mf_in.get("hi", 0.0))
-            invert = spec.get("invert", mf_in.get("invert", False))
-            typ = spec.get("type", mf_in.get("type", "tri"))
-            # Robust bool parsing for invert
-            if isinstance(invert, str):
-                invert = invert.strip().lower() in {"true","1","yes","y","on"}
-            else:
-                invert = bool(invert)
-            try:
-                lo = float(lo)
-            except Exception:
-                lo = 0.0
-            try:
-                mid = float(mid)
-            except Exception:
-                mid = 0.0
-            try:
-                hi = float(hi)
-            except Exception:
-                hi = 0.0
-            crit_out[m] = {
-                "w": weight,
-                "bom": _normalise_bom_value(spec.get("bom")) if isinstance(spec, dict) else "",
-                "mf": {"type": str(typ).lower(), "lo": lo, "mid": mid, "hi": hi, "invert": invert},
-            }
-        if crit_out:
-            out[crit] = crit_out
-
-    _ensure_bom_field(out)
-    return out
-
 
 
 for idx, (crit, label) in enumerate(CRIT_TABS):
@@ -3642,7 +3465,7 @@ def render_contribution_fragment(
             color="Metric",
             title=f"{crit}: weight-membership contributions",
         )
-        st.plotly_chart(fig, use_container_width=True, key=f"contrib_{crit}")
+        plotly_chart(fig, use_container_width=True, key=f"contrib_{crit}")
     except Exception:
         pass
 

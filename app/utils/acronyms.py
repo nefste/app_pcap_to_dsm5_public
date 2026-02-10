@@ -158,6 +158,9 @@ def open_acronyms_dialog():
 
 def render_acronyms_helper_in_sidebar():
     """Place a sidebar button directly under the page list to open the dialog."""
+    from utils.plotly_style import render_plot_style_toggle_in_sidebar
+
+    render_plot_style_toggle_in_sidebar()
     with st.sidebar:
         if st.button("Helper / Acronyms", help="Open a quick glossary"):
             open_acronyms_dialog()

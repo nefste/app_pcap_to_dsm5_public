@@ -20,6 +20,7 @@ import streamlit as st
 import pyarrow as pa
 import pyarrow.parquet as pq
 from utils.acronyms import render_acronyms_helper_in_sidebar
+from utils.plotly_style import plotly_chart, is_greyscale_mode
 
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
@@ -914,7 +915,7 @@ def _render_calendar_heatmap(counts_by_date: dict[pd.Timestamp, int]):
     cal_key = "cal_" + hashlib.md5(
         "|".join([str(pd.to_datetime(k).date()) for k in sorted(counts_by_date.keys())]).encode()
     ).hexdigest()[:8]
-    st.plotly_chart(fig, use_container_width=True, key=cal_key)
+    plotly_chart(fig, use_container_width=True, key=cal_key)
 
 with st.status("Indexing available days for the selected datasets…", expanded=False) as idx_stat:
     counts_by_date = partition_counts_by_date(selected_base_names)
@@ -1139,12 +1140,20 @@ else:
 
 def badge(label: str, color: str = "gray", icon: str | None = None):
     """Tiny wrapper for a status pill; falls back if st.badge is unavailable."""
+    if is_greyscale_mode():
+        color = "gray"
     try:
         st.badge(label, color=color, icon=icon)
     except Exception:
-        colors = {"green": "#16a34a", "orange": "#f59e0b", "red": "#dc2626", "gray": "#6b7280", "blue": "#2563eb"}
+        if is_greyscale_mode():
+            bg = "#e5e7eb"
+            text_color = "#111111"
+        else:
+            colors = {"green": "#16a34a", "orange": "#f59e0b", "red": "#dc2626", "gray": "#6b7280", "blue": "#2563eb"}
+            bg = colors.get(color, "#6b7280")
+            text_color = "white"
         st.markdown(
-            f"<span style='background:{colors.get(color, '#6b7280')};color:white;"
+            f"<span style='background:{bg};color:{text_color};"
             f"padding:4px 8px;border-radius:999px;font-size:0.8rem;display:inline-block;'>{label}</span>",
             unsafe_allow_html=True,
         )
@@ -1328,7 +1337,7 @@ def _show_metric_dialog():
                         ticktext=weekday_names,
                         range=[weekday_dates[0], weekday_dates[-1]],
                     )
-                    st.plotly_chart(fig_w, use_container_width=True, key=key_w)
+                    plotly_chart(fig_w, use_container_width=True, key=key_w)
 
                 # Tab 2: Weekday totals (sum Monday..Sunday)
                 with tab_totals:
@@ -1369,7 +1378,7 @@ def _show_metric_dialog():
                         ticktext=weekday_names,
                         range=[weekday_dates[0], weekday_dates[-1]],
                     )
-                    st.plotly_chart(fig_t, use_container_width=True, key=key_t)
+                    plotly_chart(fig_t, use_container_width=True, key=key_t)
 
                 # Tab 3: Over time (Date on X-axis)
                 with tab_dates:
@@ -1408,7 +1417,7 @@ def _show_metric_dialog():
                         xaxis_title="Date",
                         yaxis_title=dist_col,
                     )
-                    st.plotly_chart(fig_d, use_container_width=True, key=key_d)
+                    plotly_chart(fig_d, use_container_width=True, key=key_d)
 
                 # Tab 4: Distribution (boxplot over all days)
                 with tab_box:
@@ -1433,7 +1442,7 @@ def _show_metric_dialog():
                         fig_box.update_layout(height=300, margin=dict(l=10, r=10, t=10, b=10), showlegend=False)
                         fig_box.update_xaxes(visible=False)
                         fig_box.update_yaxes(title=None)
-                        st.plotly_chart(fig_box, use_container_width=True, key=key_box)
+                        plotly_chart(fig_box, use_container_width=True, key=key_box)
     else:
         st.info("No historical time series available for this metric.")
 
@@ -1777,7 +1786,7 @@ def _render_gauge(col, value: int, max_value: int, title: str, color_hex: str, k
         )
     )
     fig.update_layout(height=180, margin=dict(l=40, r=40, t=40, b=10))
-    col.plotly_chart(fig, use_container_width=True, key=key)
+    plotly_chart(fig, container=col, use_container_width=True, key=key)
 
 def _render_status_gauges(metrics: list[dict], selected_metric_labels: list[str], key_prefix: str):
     counts = _summarize_status_counts(metrics, selected_metric_labels)
@@ -1939,7 +1948,7 @@ def render_kpi(
                 fig_box.update_layout(height=230, margin=dict(l=10, r=10, t=10, b=10), showlegend=False)
                 fig_box.update_xaxes(visible=False)
                 fig_box.update_yaxes(title=None)
-                st.plotly_chart(fig_box, use_container_width=True, key=box_key)
+                plotly_chart(fig_box, use_container_width=True, key=box_key)
 
         if not has_dist:
             st.info(
